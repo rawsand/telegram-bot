@@ -109,11 +109,15 @@ if (isset($update["message"])) {
 
         updateLinkInFile($file,$channel,$text);
 
+        // Push updated file to GitHub
+        pushFileToGitHub($file);
+        
         unset($states[$chat_id]);
         file_put_contents($stateFile,json_encode($states));
-
-        sendMessage($chat_id,"✅ Updated successfully!");
+        
+        sendMessage($chat_id,"✅ Updated successfully & Synced to GitHub!");
         exit;
     }
 }
+
 ?>
