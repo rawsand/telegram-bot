@@ -1,0 +1,14 @@
+MC
+www.mcexample.com
+
+FOW
+www.fowexample.com
+
+50
+www.50example.com
+
+4
+www.4example.com
+
+5
+www.5example.com
