@@ -1,21 +1,25 @@
 <?php
+function base64UrlEncode($data) {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
 
 function getAccessToken() {
-
     $clientEmail = getenv("GOOGLE_CLIENT_EMAIL");
     $privateKey = getenv("GOOGLE_PRIVATE_KEY");
 
-    // Fix newline issue
+    if (!$clientEmail || !$privateKey) return false;
+
+    // Convert escaped newlines to real newlines
     $privateKey = str_replace("\\n", "\n", $privateKey);
 
     $now = time();
 
-    $header = base64_encode(json_encode([
+    $header = base64UrlEncode(json_encode([
         "alg" => "RS256",
         "typ" => "JWT"
     ]));
 
-    $claim = base64_encode(json_encode([
+    $claim = base64UrlEncode(json_encode([
         "iss" => $clientEmail,
         "scope" => "https://www.googleapis.com/auth/drive",
         "aud" => "https://oauth2.googleapis.com/token",
@@ -25,14 +29,10 @@ function getAccessToken() {
 
     $signatureInput = $header . "." . $claim;
 
-    openssl_sign(
-        $signatureInput,
-        $signature,
-        $privateKey,
-        "sha256WithRSAEncryption"
-    );
+    $signature = "";
+    openssl_sign($signatureInput, $signature, $privateKey, "sha256WithRSAEncryption");
 
-    $jwt = $signatureInput . "." . base64_encode($signature);
+    $jwt = $signatureInput . "." . base64UrlEncode($signature);
 
     $ch = curl_init("https://oauth2.googleapis.com/token");
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -40,7 +40,6 @@ function getAccessToken() {
         "grant_type" => "urn:ietf:params:oauth:grant-type:jwt-bearer",
         "assertion" => $jwt
     ]));
-
     $response = json_decode(curl_exec($ch), true);
     curl_close($ch);
 
