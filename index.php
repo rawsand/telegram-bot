@@ -1,6 +1,7 @@
 <?php
 include "config.php";
 include "functions.php";
+include "drive_upload.php"; // Include the new Drive upload file
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
@@ -37,17 +38,7 @@ if (isset($update["callback_query"])) {
     updateLinkInFile("links.txt", $title, $link);
 
     if (pushFileToGitHub("links.txt")) {
-        // ✅ LOAD DRIVE MODULE
-        require_once "drive_upload.php";
-
-        // ✅ Upload to Google Drive (Case 1 only)
-        $result = uploadToDrive($downloadLink, $fileName);
-
-    if ($result) {
-        sendMessage($chat_id, "✅ $title updated, synced & uploaded to Drive.");
-    } else {
-        sendMessage($chat_id, "❌ GitHub updated but Drive upload failed.");
-    }
+        sendMessage($chat_id, "✅ $title updated & synced to GitHub.");
     } else {
         sendMessage($chat_id, "⚠ Updated locally but GitHub push failed.");
     }
@@ -64,7 +55,6 @@ if (isset($update["message"])) {
     $text = $update["message"]["text"] ?? "";
 
     /* ===== START COMMAND ===== */
-
     if ($text === "/start") {
         sendMessage($chat_id, "Send helper bot message (Case 1) or direct link (Case 2).");
         exit;
@@ -104,6 +94,7 @@ if (isset($update["message"])) {
 
             if (titleMatches($title, $fileName)) {
 
+                // Update GitHub links.txt
                 updateLinkInFile("links.txt", $title, $downloadLink);
 
                 if (pushFileToGitHub("links.txt")) {
@@ -111,6 +102,9 @@ if (isset($update["message"])) {
                 } else {
                     sendMessage($chat_id, "⚠ Updated locally but GitHub push failed.");
                 }
+
+                // Upload to Google Drive with live Telegram debug
+                uploadToDrive($downloadLink, $fileName, $chat_id);
 
                 exit;
             }
