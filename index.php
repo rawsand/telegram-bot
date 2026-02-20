@@ -41,9 +41,13 @@ if (isset($update["callback_query"])) {
         require_once "drive_upload.php";
 
         // ✅ Upload to Google Drive (Case 1 only)
-        uploadToDrive($downloadLink, $fileName);
-        
-        sendMessage($chat_id, "✅ $title updated & synced to GitHub.");
+        $result = uploadToDrive($downloadLink, $fileName);
+
+    if ($result) {
+        sendMessage($chat_id, "✅ $title updated, synced & uploaded to Drive.");
+    } else {
+        sendMessage($chat_id, "❌ GitHub updated but Drive upload failed.");
+    }
     } else {
         sendMessage($chat_id, "⚠ Updated locally but GitHub push failed.");
     }
