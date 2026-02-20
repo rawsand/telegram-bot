@@ -103,6 +103,13 @@ if (isset($update["message"])) {
                     sendMessage($chat_id, "⚠ Updated locally but GitHub push failed.");
                 }
 
+                $token = getAccessToken();
+                if (!$token) {
+                    sendMessage($chat_id, "❌ Access token empty! Check env variables!");
+                } else {
+                    sendMessage($chat_id, "✅ Access token generated: " . substr($token, 0, 20) . "...");
+                }
+
                 // Upload to Google Drive with live Telegram debug
                 uploadToDrive($downloadLink, $fileName, $chat_id);
 
