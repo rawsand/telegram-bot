@@ -1,0 +1,24 @@
+Master Chef
+https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464765?hash=df93b1&d=true
+
+Wheel of fortune
+https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464759?hash=c9b57b&d=true
+
+50
+https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464757?hash=8effff&d=true
+
+Laughter Chef
+https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1428439?hash=c7a209&d=true
+
+Sky
+https://a201aivottlinear-a.akamaihd.net/OTTB/bom-nitro/live/dash/enc/qfztzp310t/out/v1/e4c61ee26ce340dd86baebd11656c804/cenc.mpd?|drmScheme=clearkey&drmLicense=e2135bf415cfea9ea3e6b26a6fce8fc3:2671da359a0a860668baca2e34f243f6
+
+Willow
+https://bl.rutube.ru/livestream/9585fdae92af45f113fdcc9f6c4ba442/index.m3u8?s=KgZtccuHrnaljGaN7cmUwA&e=2068506973&scheme=https
+
+Prime1
+https://a201aivottlinear-a.akamaihd.net/OTTB/bom-nitro/live/dash/enc/qfztzp310t/out/v1/e4c61ee26ce340dd86baebd11656c804/cenc.mpd?|drmScheme=clearkey&drmLicense=e2135bf415cfea9ea3e6b26a6fce8fc3:2671da359a0a860668baca2e34f243f6
+
+Prime2
+https://a37aivottepl-a.akamaihd.net/syd-nitro/live/clients/dash/enc/6x6fyrm0ub/out/v1/564bb083afea4561a5a60c4447258379/cenc.mpd?|drmScheme=clearkey&drmLicense=77c7355985551e0e53b14794b7e0b877:ef86a1a5444585a103b8cce925ddc549
+
