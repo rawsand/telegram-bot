@@ -37,6 +37,12 @@ if (isset($update["callback_query"])) {
     updateLinkInFile("links.txt", $title, $link);
 
     if (pushFileToGitHub("links.txt")) {
+        // ✅ LOAD DRIVE MODULE
+        require_once "drive_upload.php";
+
+        // ✅ Upload to Google Drive (Case 1 only)
+        uploadToDrive($downloadLink, $fileName);
+        
         sendMessage($chat_id, "✅ $title updated & synced to GitHub.");
     } else {
         sendMessage($chat_id, "⚠ Updated locally but GitHub push failed.");
