@@ -1,8 +1,8 @@
 Master Chef
-https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1467406?hash=22a3f8&d=true
+https://filetolokuapp.com/stream/1467406?hash=22a3f8&d=true
 
 Wheel of fortune
-https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1467406?hash=22a3f8&d=true
+www.exmaple.com
 
 50
 https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464757?hash=8effff&d=true
