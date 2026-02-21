@@ -96,8 +96,14 @@ if (isset($update["message"])) {
 
             if (titleMatches($title, $fileName)) {
 
-                // Update GitHub links.txt
-                updateLinkInFile("links.txt", $title, $downloadLink);
+                $driveLink = uploadToDriveResumable($downloadLink, $fileName);
+
+                if (!$driveLink) {
+                    sendMessage($chat_id, "Drive upload failed.");
+                    exit;
+                }
+                
+                updateLinkInFile("links.txt", $title, $driveLink);
 
                 if (pushFileToGitHub("links.txt")) {
                     sendMessage($chat_id, "✅ $title updated & synced to GitHub.");
