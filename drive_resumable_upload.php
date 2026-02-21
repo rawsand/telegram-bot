@@ -4,6 +4,18 @@ function base64url_encode($data) {
     return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
 }
 
+function debugMessage($chat_id, $text) {
+    $botToken = getenv("BOT_TOKEN");
+    $url = "https://api.telegram.org/bot$botToken/sendMessage";
+
+    $data = [
+        "chat_id" => $chat_id,
+        "text" => "🔎 DEBUG:\n" . $text
+    ];
+
+    file_get_contents($url . "?" . http_build_query($data));
+}
+
 function getAccessToken() {
 
     $clientEmail = getenv("GOOGLE_CLIENT_EMAIL");
@@ -59,17 +71,29 @@ function getAccessToken() {
     return $response["access_token"] ?? false;
 }
 
-function uploadToDriveResumable($fileUrl, $fileName) {
+function uploadToDriveResumable($fileUrl, $fileName, $chat_id) {
+
+    debugMessage($chat_id, "Starting upload process");
 
     $accessToken = getAccessToken();
-    if (!$accessToken) return false;
+
+    if (!$accessToken) {
+        debugMessage($chat_id, "❌ Access token generation FAILED");
+        return false;
+    }
+
+    debugMessage($chat_id, "✅ Access token received");
 
     $folderId = getenv("GOOGLE_DRIVE_FOLDER_ID");
 
-    // Get file size
-    $headers = get_headers($fileUrl, 1);
-    if (!isset($headers["Content-Length"])) return false;
+    $headers = @get_headers($fileUrl, 1);
+    if (!$headers || !isset($headers["Content-Length"])) {
+        debugMessage($chat_id, "❌ Could not get Content-Length from URL");
+        return false;
+    }
+
     $fileSize = (int)$headers["Content-Length"];
+    debugMessage($chat_id, "File size detected: " . $fileSize);
 
     // Step 1: Create resumable session
     $metadata = json_encode([
@@ -88,25 +112,42 @@ function uploadToDriveResumable($fileUrl, $fileName) {
         "X-Upload-Content-Length: $fileSize"
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $metadata);
+
     $response = curl_exec($ch);
+    $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
     $headersRaw = substr($response, 0, $headerSize);
     curl_close($ch);
 
+    if ($status != 200) {
+        debugMessage($chat_id, "❌ Failed to create resumable session. HTTP: $status");
+        return false;
+    }
+
+    debugMessage($chat_id, "✅ Resumable session created");
+
     preg_match('/Location: (.*)/', $headersRaw, $matches);
-    if (!isset($matches[1])) return false;
+    if (!isset($matches[1])) {
+        debugMessage($chat_id, "❌ Upload URL not found in response headers");
+        return false;
+    }
 
     $uploadUrl = trim($matches[1]);
+    debugMessage($chat_id, "Upload URL obtained");
 
-    $fileHandle = fopen($fileUrl, "rb");
-    if (!$fileHandle) return false;
+    $fileHandle = @fopen($fileUrl, "rb");
+    if (!$fileHandle) {
+        debugMessage($chat_id, "❌ fopen failed on file URL");
+        return false;
+    }
+
+    debugMessage($chat_id, "Streaming started");
 
     $chunkSize = 5 * 1024 * 1024;
     $offset = 0;
 
     while ($offset < $fileSize) {
 
-        fseek($fileHandle, $offset);
         $chunk = fread($fileHandle, $chunkSize);
         $chunkLength = strlen($chunk);
 
@@ -123,27 +164,22 @@ function uploadToDriveResumable($fileUrl, $fileName) {
             "Content-Range: bytes $start-$end/$fileSize"
         ]);
         curl_setopt($ch, CURLOPT_POSTFIELDS, $chunk);
-        $response = curl_exec($ch);
 
+        $response = curl_exec($ch);
         $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $headerSize = curl_getinfo($ch, CURLINFO_HEADER_SIZE);
-        $responseHeaders = substr($response, 0, $headerSize);
-        $body = substr($response, $headerSize);
         curl_close($ch);
 
+        debugMessage($chat_id, "Chunk uploaded. HTTP: $status Offset: $offset");
+
         if ($status == 308) {
-            // Upload incomplete, get range
-            if (preg_match('/Range: bytes=0-(\d+)/', $responseHeaders, $rangeMatch)) {
-                $offset = (int)$rangeMatch[1] + 1;
-            } else {
-                $offset += $chunkLength;
-            }
+            $offset += $chunkLength;
         }
         elseif ($status == 200 || $status == 201) {
-            $uploadResponse = json_decode($body, true);
+            $uploadResponse = json_decode(substr($response, curl_getinfo($ch, CURLINFO_HEADER_SIZE)), true);
             break;
         }
         else {
+            debugMessage($chat_id, "❌ Upload failed at chunk level. HTTP: $status");
             fclose($fileHandle);
             return false;
         }
@@ -151,24 +187,13 @@ function uploadToDriveResumable($fileUrl, $fileName) {
 
     fclose($fileHandle);
 
-    if (!isset($uploadResponse["id"])) return false;
+    if (!isset($uploadResponse["id"])) {
+        debugMessage($chat_id, "❌ File ID not returned");
+        return false;
+    }
 
     $fileId = $uploadResponse["id"];
-
-    // Make public
-    $ch = curl_init("https://www.googleapis.com/drive/v3/files/$fileId/permissions");
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "Authorization: Bearer $accessToken",
-        "Content-Type: application/json"
-    ]);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        "role"=>"reader",
-        "type"=>"anyone"
-    ]));
-    curl_exec($ch);
-    curl_close($ch);
+    debugMessage($chat_id, "✅ Upload completed. File ID: $fileId");
 
     return "https://drive.google.com/file/d/$fileId/view";
 }
