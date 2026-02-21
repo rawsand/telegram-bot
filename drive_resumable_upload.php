@@ -4,7 +4,6 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
 
     debugMessage($chat_id, "Starting upload process");
 
-    debugMessage($chat_id, "Checking download headers");
     $headers = @get_headers($downloadUrl, 1);
     debugMessage($chat_id, print_r($headers, true));
 
@@ -56,7 +55,6 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
     curl_close($ch);
 
     if (!isset($tokenResponse["access_token"])) {
-        debugMessage($chat_id, "Access token failed");
         debugMessage($chat_id, print_r($tokenResponse, true));
         return false;
     }
@@ -86,16 +84,12 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
     $responseHeaders = substr($response, 0, $headerSize);
     curl_close($ch);
 
-    debugMessage($chat_id, "Resumable session headers:");
-    debugMessage($chat_id, $responseHeaders);
-
     if (!preg_match('/Location:\s*(.*)/i', $responseHeaders, $matches)) {
-        debugMessage($chat_id, "Upload URL not found");
+        debugMessage($chat_id, $responseHeaders);
         return false;
     }
 
     $uploadUrl = trim($matches[1]);
-    debugMessage($chat_id, "Resumable upload URL acquired");
 
     $ch = curl_init($uploadUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -113,13 +107,10 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
     debugMessage($chat_id, "Upload HTTP status: " . $uploadStatus);
 
     if ($uploadStatus == 200 || $uploadStatus == 201) {
-        debugMessage($chat_id, "Upload successful");
         return true;
     }
 
-    debugMessage($chat_id, "Upload failed response:");
     debugMessage($chat_id, $uploadResponse);
-
     return false;
 }
 ?>
