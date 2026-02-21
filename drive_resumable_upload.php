@@ -7,22 +7,44 @@ function base64url_encode($data) {
 function getAccessToken() {
 
     $clientEmail = getenv("GOOGLE_CLIENT_EMAIL");
-    $privateKey = str_replace("\\n", "\n", getenv("GOOGLE_PRIVATE_KEY"));
+    $privateKeyRaw = getenv("GOOGLE_PRIVATE_KEY");
 
-    $header = base64url_encode(json_encode(["alg"=>"RS256","typ"=>"JWT"]));
+    // Rebuild private key properly
+    $privateKey = "-----BEGIN PRIVATE KEY-----\n" .
+        chunk_split(
+            str_replace(
+                ["-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----", "\n", "\r", " "],
+                "",
+                $privateKeyRaw
+            ),
+            64,
+            "\n"
+        ) .
+        "-----END PRIVATE KEY-----\n";
+
+    $header = rtrim(strtr(base64_encode(json_encode([
+        "alg"=>"RS256",
+        "typ"=>"JWT"
+    ])), '+/', '-_'), '=');
+
     $now = time();
 
-    $claim = base64url_encode(json_encode([
+    $claim = rtrim(strtr(base64_encode(json_encode([
         "iss"=>$clientEmail,
         "scope"=>"https://www.googleapis.com/auth/drive",
         "aud"=>"https://oauth2.googleapis.com/token",
         "exp"=>$now+3600,
         "iat"=>$now
-    ]));
+    ])), '+/', '-_'), '=');
 
     $signatureInput = "$header.$claim";
-    openssl_sign($signatureInput, $signature, $privateKey, "SHA256");
-    $jwt = "$header.$claim.".base64url_encode($signature);
+
+    if (!openssl_sign($signatureInput, $signature, $privateKey, "SHA256")) {
+        return false;
+    }
+
+    $jwt = "$header.$claim." .
+        rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
 
     $ch = curl_init("https://oauth2.googleapis.com/token");
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
