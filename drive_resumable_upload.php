@@ -4,12 +4,24 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
 
     debugMessage($chat_id, "Starting upload process");
 
-    $headers = @get_headers($downloadUrl, 1);
-    debugMessage($chat_id, print_r($headers, true));
+    /* ================= DOWNLOAD USING CURL ================= */
 
-    $fileData = @file_get_contents($downloadUrl);
+    $ch = curl_init($downloadUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_HEADER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, "Mozilla/5.0");
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
 
-    if (!$fileData) {
+    $fileData = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $contentType = curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+    curl_close($ch);
+
+    debugMessage($chat_id, "HTTP Status: " . $httpCode);
+    debugMessage($chat_id, "Content-Type: " . $contentType);
+
+    if ($httpCode !== 200 || !$fileData) {
         debugMessage($chat_id, "Download failed");
         return false;
     }
@@ -17,11 +29,11 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
     $fileSize = strlen($fileData);
     debugMessage($chat_id, "File size detected: " . $fileSize);
 
-    $clientEmail = getenv("GOOGLE_CLIENT_EMAIL");
-    $privateKey = getenv("GOOGLE_PRIVATE_KEY");
-    $folderId = getenv("GOOGLE_DRIVE_FOLDER_ID");
+    /* ================= GOOGLE AUTH ================= */
 
-    $privateKey = str_replace("\\n", "\n", $privateKey);
+    $clientEmail = getenv("GOOGLE_CLIENT_EMAIL");
+    $privateKey = str_replace("\\n", "\n", getenv("GOOGLE_PRIVATE_KEY"));
+    $folderId = getenv("GOOGLE_DRIVE_FOLDER_ID");
 
     $now = time();
     $expiry = $now + 3600;
@@ -62,6 +74,8 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
     $accessToken = $tokenResponse["access_token"];
     debugMessage($chat_id, "Access token received");
 
+    /* ================= CREATE RESUMABLE SESSION ================= */
+
     $metadata = json_encode([
         "name" => $fileName,
         "parents" => [$folderId]
@@ -90,6 +104,8 @@ function uploadToDriveResumable($downloadUrl, $fileName, $chat_id) {
     }
 
     $uploadUrl = trim($matches[1]);
+
+    /* ================= UPLOAD FILE ================= */
 
     $ch = curl_init($uploadUrl);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
