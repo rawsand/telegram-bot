@@ -2,8 +2,6 @@
 include "config.php";
 include "functions.php";
 include "drive_resumable_upload.php";
-//include "drive_upload.php"; // Include the new Drive upload file
-
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
@@ -11,147 +9,50 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $update = json_decode(file_get_contents("php://input"), true);
 
-$user_id = $update["message"]["from"]["id"]
-    ?? $update["callback_query"]["from"]["id"]
-    ?? null;
+$chat_id = $update["message"]["chat"]["id"] ?? null;
+$user_id = $update["message"]["from"]["id"] ?? null;
 
-if ($user_id != $allowedUser) {
+if ($user_id != getenv("OWNER_ID")) {
     exit;
 }
 
-/* ================= CALLBACK (CASE 2 BUTTON) ================= */
-
-if (isset($update["callback_query"])) {
-
-    $callback = $update["callback_query"];
-    $chat_id = $callback["message"]["chat"]["id"];
-    $title = $callback["data"];
-    $callback_id = $callback["id"];
-
-    answerCallback($callback_id);
-
-    $link = getTempLink($chat_id);
-
-    if (!$link) {
-        sendMessage($chat_id, "Expired. Send link again.");
-        exit;
-    }
-
-    updateLinkInFile("links.txt", $title, $link);
-
-    if (pushFileToGitHub("links.txt")) {
-        sendMessage($chat_id, "✅ $title updated & synced to GitHub.");
-    } else {
-        sendMessage($chat_id, "⚠ Updated locally but GitHub push failed.");
-    }
-
-    clearTempLink($chat_id);
-    exit;
+function debugMessage($chat_id, $text) {
+    sendMessage($chat_id, "🔎 DEBUG:\n" . $text);
 }
-
-/* ================= MESSAGE HANDLING ================= */
 
 if (isset($update["message"])) {
 
-    $chat_id = $update["message"]["chat"]["id"];
     $text = $update["message"]["text"] ?? "";
 
-    /* ===== START COMMAND ===== */
     if ($text === "/start") {
-        sendMessage($chat_id, "Send helper bot message (Case 1) or direct link (Case 2).");
+        sendMessage($chat_id, "Send formatted message.");
         exit;
     }
 
-    /* =======================================================
-       ================= CASE 1 ==============================
-       Forwarded helper bot message with:
-       - File name
-       - Download link
-       ======================================================= */
+    if (strpos($text, "File Name") !== false && strpos($text, "Download") !== false) {
 
-    if (strpos($text, "Fɪʟᴇ ɴᴀᴍᴇ") !== false && strpos($text, "Dᴏᴡɴʟᴏᴀᴅ") !== false) {
-
-        // Extract file name
-        preg_match('/Fɪʟᴇ ɴᴀᴍᴇ\s*:\s*(.+)/u', $text, $fileMatch);
-
-        // Extract download link
+        preg_match('/File Name\s*:\s*(.+)/i', $text, $fileMatch);
         preg_match('/https?:\/\/[^\s]+/', $text, $linkMatch);
 
         if (!isset($fileMatch[1]) || !isset($linkMatch[0])) {
-            sendMessage($chat_id, "Could not extract file name or link.");
+            sendMessage($chat_id, "Extraction failed.");
             exit;
         }
 
         $fileName = trim($fileMatch[1]);
-        $downloadLink = trim($linkMatch[0]);
+        $downloadUrl = trim($linkMatch[0]);
 
-        $titles = [
-            "Master Chef",
-            "Wheel of fortune",
-            "50",
-            "Laughter Chef"
-        ];
+        debugMessage($chat_id, "File Name: $fileName");
+        debugMessage($chat_id, "Download URL detected");
 
-        foreach ($titles as $title) {
+        $success = uploadToDriveResumable($downloadUrl, $fileName, $chat_id);
 
-            if (titleMatches($title, $fileName)) {
-
-                $driveLink = uploadToDriveResumable($downloadLink, $fileName, $chat_id);
-
-                if (!$driveLink) {
-                    sendMessage($chat_id, "Drive upload failed.");
-                    exit;
-                }
-                
-                updateLinkInFile("links.txt", $title, $driveLink);
-
-                if (pushFileToGitHub("links.txt")) {
-                    sendMessage($chat_id, "✅ $title updated & synced to GitHub.");
-                } else {
-                    sendMessage($chat_id, "⚠ Updated locally but GitHub push failed.");
-                }
-
-                $token = getAccessToken();
-                if (!$token) {
-                    sendMessage($chat_id, "❌ Access token empty! Check env variables!");
-                } else {
-                    sendMessage($chat_id, "✅ Access token generated: " . substr($token, 0, 20) . "...");
-                }
-
-                // Upload to Google Drive with live Telegram debug
-                uploadToDrive($downloadLink, $fileName, $chat_id);
-
-                exit;
-            }
+        if ($success) {
+            sendMessage($chat_id, "✅ Drive Upload Success");
+        } else {
+            sendMessage($chat_id, "❌ Drive upload failed.");
         }
 
-        sendMessage($chat_id, "No matching title found.");
-        exit;
-    }
-
-    /* =======================================================
-       ================= CASE 2 ==============================
-       Direct link + button selection
-       ======================================================= */
-
-    if (filter_var($text, FILTER_VALIDATE_URL)) {
-
-        saveTempLink($chat_id, $text);
-
-        $keyboard = [
-            "inline_keyboard" => [
-                [
-                    ["text"=>"Sky","callback_data"=>"Sky"],
-                    ["text"=>"Willow","callback_data"=>"Willow"]
-                ],
-                [
-                    ["text"=>"Prime1","callback_data"=>"Prime1"],
-                    ["text"=>"Prime2","callback_data"=>"Prime2"]
-                ]
-            ]
-        ];
-
-        sendMessage($chat_id, "Select title:", $keyboard);
         exit;
     }
 
