@@ -32,24 +32,15 @@ if (isset($update["message"])) {
     $text = $update["message"]["text"] ?? "";
 
     if ($text === "/start") {
-        sendMessage($chat_id, "Send formatted message:\nFile Name : xxx\nDownload : https://...");
+        sendMessage($chat_id, "Send helper message.");
         exit;
     }
 
-    /* ================= CASE 1 ================= */
+    /* ================= CASE 1 (UNICODE FORMAT SUPPORT) ================= */
 
-    if (
-        stripos($text, "file name") !== false &&
-        stripos($text, "download") !== false
+    if (preg_match('/F.?ɪ.?ʟ.?ᴇ.?[\s_]*ɴ.?ᴀ.?ᴍ.?ᴇ\s*:\s*(.+)/iu', $text, $fileMatch) &&
+        preg_match('/https?:\/\/[^\s]+/iu', $text, $linkMatch)
     ) {
-
-        preg_match('/File\s*Name\s*:\s*(.+)/i', $text, $fileMatch);
-        preg_match('/https?:\/\/[^\s]+/i', $text, $linkMatch);
-
-        if (!isset($fileMatch[1]) || !isset($linkMatch[0])) {
-            sendMessage($chat_id, "Extraction failed.");
-            exit;
-        }
 
         $fileName = trim($fileMatch[1]);
         $downloadUrl = trim($linkMatch[0]);
