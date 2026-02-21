@@ -96,7 +96,7 @@ if (isset($update["message"])) {
 
             if (titleMatches($title, $fileName)) {
 
-                $driveLink = uploadToDriveResumable($downloadLink, $fileName);
+                $driveLink = uploadToDriveResumable($downloadLink, $fileName, $chat_id);
 
                 if (!$driveLink) {
                     sendMessage($chat_id, "Drive upload failed.");
