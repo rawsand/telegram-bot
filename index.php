@@ -9,8 +9,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $update = json_decode(file_get_contents("php://input"), true);
 
-$chat_id = $update["message"]["chat"]["id"] ?? null;
-$user_id = $update["message"]["from"]["id"] ?? null;
+$user_id = $update["message"]["from"]["id"]
+    ?? $update["callback_query"]["from"]["id"]
+    ?? null;
+
+$chat_id = $update["message"]["chat"]["id"]
+    ?? $update["callback_query"]["message"]["chat"]["id"]
+    ?? null;
 
 if ($user_id != getenv("OWNER_ID")) {
     exit;
@@ -20,19 +25,26 @@ function debugMessage($chat_id, $text) {
     sendMessage($chat_id, "🔎 DEBUG:\n" . $text);
 }
 
+/* ================= MESSAGE HANDLING ================= */
+
 if (isset($update["message"])) {
 
     $text = $update["message"]["text"] ?? "";
 
     if ($text === "/start") {
-        sendMessage($chat_id, "Send formatted message.");
+        sendMessage($chat_id, "Send formatted message:\nFile Name : xxx\nDownload : https://...");
         exit;
     }
 
-    if (strpos($text, "File Name") !== false && strpos($text, "Download") !== false) {
+    /* ================= CASE 1 ================= */
 
-        preg_match('/File Name\s*:\s*(.+)/i', $text, $fileMatch);
-        preg_match('/https?:\/\/[^\s]+/', $text, $linkMatch);
+    if (
+        stripos($text, "file name") !== false &&
+        stripos($text, "download") !== false
+    ) {
+
+        preg_match('/File\s*Name\s*:\s*(.+)/i', $text, $fileMatch);
+        preg_match('/https?:\/\/[^\s]+/i', $text, $linkMatch);
 
         if (!isset($fileMatch[1]) || !isset($linkMatch[0])) {
             sendMessage($chat_id, "Extraction failed.");
