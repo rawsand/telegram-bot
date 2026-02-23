@@ -1,7 +1,5 @@
-import requests
 import dropbox
 from dropbox.files import WriteMode
-from dropbox.exceptions import ApiError
 
 
 class DropboxHandler:
@@ -10,43 +8,56 @@ class DropboxHandler:
         self.app_secret = app_secret
         self.refresh_token = refresh_token
 
-    def get_access_token(self):
-        url = "https://api.dropboxapi.com/oauth2/token"
-        data = {
-            "grant_type": "refresh_token",
-            "refresh_token": self.refresh_token,
-            "client_id": self.app_key,
-            "client_secret": self.app_secret,
-        }
+    def get_client(self):
+        return dropbox.Dropbox(
+            oauth2_refresh_token=self.refresh_token,
+            app_key=self.app_key,
+            app_secret=self.app_secret,
+        )
 
-        response = requests.post(url, data=data)
-        response.raise_for_status()
-        return response.json()["access_token"]
-
-    def upload_file(self, file_bytes, dropbox_path):
-        access_token = self.get_access_token()
-        dbx = dropbox.Dropbox(access_token)
-
+    def upload_stream(self, file_stream, path):
         try:
-            dbx.files_upload(
-                file_bytes,
-                dropbox_path,
-                mode=WriteMode("overwrite")
+            CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
+            dbx = self.get_client()
+
+            upload_session_start_result = dbx.files_upload_session_start(
+                file_stream.read(CHUNK_SIZE)
             )
+
+            cursor = dropbox.files.UploadSessionCursor(
+                session_id=upload_session_start_result.session_id,
+                offset=file_stream.tell(),
+            )
+
+            commit = dropbox.files.CommitInfo(
+                path=path,
+                mode=WriteMode("overwrite"),
+            )
+
+            while True:
+                chunk = file_stream.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+
+                dbx.files_upload_session_append_v2(chunk, cursor)
+                cursor.offset = file_stream.tell()
+
+            dbx.files_upload_session_finish(b"", cursor, commit)
+
             return True
-        except ApiError as e:
-            print("Upload failed:", e)
+
+        except Exception as e:
+            print("Upload error:", e)
             return False
 
-    def generate_share_link(self, dropbox_path):
-        access_token = self.get_access_token()
-        dbx = dropbox.Dropbox(access_token)
+    def generate_share_link(self, path):
+        dbx = self.get_client()
 
         try:
-            link = dbx.sharing_create_shared_link_with_settings(dropbox_path)
-            return link.url.replace("?dl=0", "?raw=1")
-        except ApiError:
-            links = dbx.sharing_list_shared_links(path=dropbox_path)
-            if links.links:
-                return links.links[0].url.replace("?dl=0", "?raw=1")
+            link = dbx.sharing_create_shared_link_with_settings(path)
+            return link.url.replace("?dl=0", "?dl=1")
+        except:
+            links = dbx.sharing_list_shared_links(path=path).links
+            if links:
+                return links[0].url.replace("?dl=0", "?dl=1")
             return None
