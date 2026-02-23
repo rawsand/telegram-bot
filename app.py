@@ -1,11 +1,11 @@
 import os
 import requests
+import threading
 from flask import Flask, request
 from dropbox_handler import DropboxHandler
 
 app = Flask(__name__)
 
-# ENV VARIABLES
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_KEY = os.environ.get("APP_KEY")
 APP_SECRET = os.environ.get("APP_SECRET")
@@ -13,7 +13,6 @@ REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN")
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Dropbox handler
 handler = DropboxHandler(APP_KEY, APP_SECRET, REFRESH_TOKEN)
 
 
@@ -36,9 +35,10 @@ def webhook():
                 send_message(chat_id, "Send me a direct downloadable file URL.")
 
             elif text.startswith("http"):
-                process_url(chat_id, text)
+                # Run in background thread
+                threading.Thread(target=process_url, args=(chat_id, text)).start()
 
-    return "OK"
+    return "OK"  # VERY IMPORTANT (instant response)
 
 
 def send_message(chat_id, text):
