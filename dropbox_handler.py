@@ -15,10 +15,10 @@ class DropboxHandler:
             app_secret=self.app_secret,
         )
 
-    def upload_stream(self, file_stream, path, progress_callback=None):
+    def upload_stream(self, file_stream, path, progress_callback=None, total_size=None):
         """
         Uploads a stream to Dropbox in chunks.
-        Calls progress_callback(percent) if provided.
+        Calls progress_callback(uploaded_bytes) if provided.
         """
         try:
             CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
@@ -35,16 +35,11 @@ class DropboxHandler:
             cursor = UploadSessionCursor(session_start.session_id, uploaded_bytes)
             commit = CommitInfo(path=path, mode=WriteMode("overwrite"))
 
-            # Try to get total size for progress
-            try:
-                current_pos = file_stream.tell()
-                file_stream.seek(0, 2)  # Seek to end
-                total_size = file_stream.tell()
-                file_stream.seek(current_pos)
-            except Exception:
-                total_size = None
-
             next_percent = 0
+            gap = 50 if total_size and total_size < 700 * 1024 * 1024 else 20
+
+            if progress_callback and total_size:
+                progress_callback(uploaded_bytes, next_percent, gap)
 
             while True:
                 chunk = file_stream.read(CHUNK_SIZE)
@@ -55,11 +50,9 @@ class DropboxHandler:
                 uploaded_bytes += len(chunk)
                 cursor.offset = uploaded_bytes
 
-                if total_size and progress_callback:
-                    percent = int(uploaded_bytes / total_size * 100)
-                    if percent >= next_percent:
-                        progress_callback(percent)
-                        next_percent += 20 if total_size >= 700 * 1024 * 1024 else 50
+                if progress_callback and total_size:
+                    progress_callback(uploaded_bytes, next_percent, gap)
+                    # progress_callback will increment next_percent internally
 
             # Finish session
             dbx.files_upload_session_finish(b"", cursor, commit)
