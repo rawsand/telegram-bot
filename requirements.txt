@@ -1,4 +1,2 @@
-dropbox
 requests
-flask
-gunicorn
+dropbox
