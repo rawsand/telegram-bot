@@ -62,14 +62,26 @@ def process_url(chat_id, url):
 
         dropbox_path = "/MasterChef_Latest.mp4"
 
-        def progress_callback(percent):
-            edit_message(chat_id, message_id, f"Uploading: {percent}%")
-
+        # Get total size from HTTP headers
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
-            handler.upload_stream(r.raw, dropbox_path, progress_callback=progress_callback)
+            total_size = int(r.headers.get("Content-Length", 0))
+            if total_size == 0:
+                total_size = None
 
-        # Generate shareable link
+            # Setup progress callback
+            def progress_callback(uploaded_bytes, next_percent, gap):
+                percent = int(uploaded_bytes / total_size * 100)
+                if percent >= next_percent:
+                    edit_message(chat_id, message_id, f"Uploading: {percent}%")
+                    progress_callback.next_percent += gap
+            progress_callback.next_percent = gap = 50 if total_size and total_size < 700*1024*1024 else 20
+
+            handler.upload_stream(r.raw, dropbox_path,
+                                  progress_callback=progress_callback,
+                                  total_size=total_size)
+
+        # Generate Dropbox shareable link
         link = handler.generate_share_link(dropbox_path)
         send_message(chat_id, f"Upload successful ✅\nDropbox link: {link}")
 
