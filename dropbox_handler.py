@@ -1,18 +1,8 @@
 import dropbox
-from dropbox.files import WriteMode
+from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo
 
 
 class DropboxHandler:
-    
-    # inside DropboxHandler
-    def dropbox_cursor(self, session_start_result, offset):
-        from dropbox.files import UploadSessionCursor
-        return UploadSessionCursor(session_start_result.session_id, offset)
-    
-    def dropbox_commit_info(self, path):
-        from dropbox.files import CommitInfo, WriteMode
-        return CommitInfo(path=path, mode=WriteMode("overwrite"))
-        
     def __init__(self, app_key, app_secret, refresh_token):
         self.app_key = app_key
         self.app_secret = app_secret
@@ -25,24 +15,36 @@ class DropboxHandler:
             app_secret=self.app_secret,
         )
 
-    def upload_stream(self, file_stream, path):
+    def upload_stream(self, file_stream, path, progress_callback=None):
+        """
+        Uploads a stream to Dropbox in chunks.
+        Calls progress_callback(percent) if provided.
+        """
         try:
             CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
             dbx = self.get_client()
 
-            upload_session_start_result = dbx.files_upload_session_start(
-                file_stream.read(CHUNK_SIZE)
-            )
+            first_chunk = file_stream.read(CHUNK_SIZE)
+            if not first_chunk:
+                return False
 
-            cursor = dropbox.files.UploadSessionCursor(
-                session_id=upload_session_start_result.session_id,
-                offset=file_stream.tell(),
-            )
+            # Start upload session
+            session_start = dbx.files_upload_session_start(first_chunk)
+            uploaded_bytes = len(first_chunk)
 
-            commit = dropbox.files.CommitInfo(
-                path=path,
-                mode=WriteMode("overwrite"),
-            )
+            cursor = UploadSessionCursor(session_start.session_id, uploaded_bytes)
+            commit = CommitInfo(path=path, mode=WriteMode("overwrite"))
+
+            # Try to get total size for progress
+            try:
+                current_pos = file_stream.tell()
+                file_stream.seek(0, 2)  # Seek to end
+                total_size = file_stream.tell()
+                file_stream.seek(current_pos)
+            except Exception:
+                total_size = None
+
+            next_percent = 0
 
             while True:
                 chunk = file_stream.read(CHUNK_SIZE)
@@ -50,10 +52,17 @@ class DropboxHandler:
                     break
 
                 dbx.files_upload_session_append_v2(chunk, cursor)
-                cursor.offset = file_stream.tell()
+                uploaded_bytes += len(chunk)
+                cursor.offset = uploaded_bytes
 
+                if total_size and progress_callback:
+                    percent = int(uploaded_bytes / total_size * 100)
+                    if percent >= next_percent:
+                        progress_callback(percent)
+                        next_percent += 20 if total_size >= 700 * 1024 * 1024 else 50
+
+            # Finish session
             dbx.files_upload_session_finish(b"", cursor, commit)
-
             return True
 
         except Exception as e:
@@ -62,7 +71,6 @@ class DropboxHandler:
 
     def generate_share_link(self, path):
         dbx = self.get_client()
-
         try:
             link = dbx.sharing_create_shared_link_with_settings(path)
             return link.url.replace("?dl=0", "?dl=1")
