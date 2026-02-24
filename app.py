@@ -1,6 +1,5 @@
 import os
 import requests
-import threading
 from flask import Flask, request
 from dropbox_handler import DropboxHandler
 
@@ -11,84 +10,117 @@ APP_KEY = os.environ.get("APP_KEY")
 APP_SECRET = os.environ.get("APP_SECRET")
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN")
 
-TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-
 handler = DropboxHandler(APP_KEY, APP_SECRET, REFRESH_TOKEN)
 
+TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 @app.route("/")
 def home():
-    return "Bot is running"
+    return "Bot is running."
 
+def send_message(chat_id, text):
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={"chat_id": chat_id, "text": text},
+        timeout=60,
+    )
+
+def edit_message(chat_id, message_id, text):
+    requests.post(
+        f"{TELEGRAM_API}/editMessageText",
+        json={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+        },
+        timeout=60,
+    )
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
 
-    if "message" in data:
-        chat_id = data["message"]["chat"]["id"]
+    if "message" not in data:
+        return "OK"
 
-        if "text" in data["message"]:
-            text = data["message"]["text"]
+    message = data["message"]
+    chat_id = message["chat"]["id"]
 
-            if text == "/start":
-                send_message(chat_id, "Send me a direct downloadable file URL.")
+    # Detect video or document
+    if "video" in message:
+        file_info = message["video"]
+    elif "document" in message:
+        file_info = message["document"]
+    else:
+        send_message(chat_id, "Please forward a video file.")
+        return "OK"
 
-            elif text.startswith("http"):
-                threading.Thread(target=process_url, args=(chat_id, text)).start()
+    file_id = file_info["file_id"]
+    file_name = file_info.get("file_name", "uploaded_video.mp4")
+    file_size = file_info.get("file_size", 0)
+
+    # 2GB limit check
+    if file_size > 2 * 1024 * 1024 * 1024:
+        send_message(chat_id, "File exceeds 2GB Telegram limit.")
+        return "OK"
+
+    # Initial progress message
+    progress_msg = requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={"chat_id": chat_id, "text": "Starting upload..."},
+    ).json()
+
+    message_id = progress_msg["result"]["message_id"]
+
+    # Get file path from Telegram
+    file_response = requests.get(
+        f"{TELEGRAM_API}/getFile",
+        params={"file_id": file_id},
+        timeout=60,
+    ).json()
+
+    file_path = file_response["result"]["file_path"]
+
+    download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+
+    response = requests.get(download_url, stream=True, timeout=300)
+
+    thresholds = []
+    if file_size < 700 * 1024 * 1024:
+        thresholds = [50, 100]
+    else:
+        thresholds = [20, 40, 60, 80, 100]
+
+    sent_thresholds = set()
+
+    def progress_callback(uploaded, total):
+        percent = int((uploaded / total) * 100)
+        for t in thresholds:
+            if percent >= t and t not in sent_thresholds:
+                sent_thresholds.add(t)
+                edit_message(
+                    chat_id,
+                    message_id,
+                    f"Uploading... {t}%"
+                )
+
+    success = handler.upload_stream(
+        response.raw,
+        file_size,
+        "/Latest_Video.mp4",
+        progress_callback
+    )
+
+    if not success:
+        edit_message(chat_id, message_id, "Upload failed.")
+        return "OK"
+
+    link = handler.generate_share_link("/Latest_Video.mp4")
+
+    edit_message(
+        chat_id,
+        message_id,
+        f"Upload Successful ✅\n\nDropbox Link:\n{link}"
+    )
 
     return "OK"
-
-
-def send_message(chat_id, text):
-    resp = requests.post(
-        f"{TELEGRAM_API}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
-    )
-    return resp
-
-
-def edit_message(chat_id, message_id, text):
-    requests.post(
-        f"{TELEGRAM_API}/editMessageText",
-        json={"chat_id": chat_id, "message_id": message_id, "text": text},
-    )
-
-
-def process_url(chat_id, url):
-    try:
-        msg = send_message(chat_id, "Downloading and uploading...")
-        message_id = msg.json().get("result", {}).get("message_id")
-
-        dropbox_path = "/MasterChef_Latest.mp4"
-
-        # Get total size from HTTP headers
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get("Content-Length", 0))
-            if total_size == 0:
-                total_size = None
-
-            # Setup progress callback
-            def progress_callback(uploaded_bytes, next_percent, gap):
-                percent = int(uploaded_bytes / total_size * 100)
-                if percent >= next_percent:
-                    edit_message(chat_id, message_id, f"Uploading: {percent}%")
-                    progress_callback.next_percent += gap
-            progress_callback.next_percent = gap = 50 if total_size and total_size < 700*1024*1024 else 20
-
-            handler.upload_stream(r.raw, dropbox_path,
-                                  progress_callback=progress_callback,
-                                  total_size=total_size)
-
-        # Generate Dropbox shareable link
-        link = handler.generate_share_link(dropbox_path)
-        send_message(chat_id, f"Upload successful ✅\nDropbox link: {link}")
-
-    except Exception as e:
-        send_message(chat_id, f"Error: {str(e)}")
-
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
