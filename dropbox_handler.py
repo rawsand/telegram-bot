@@ -3,6 +3,16 @@ from dropbox.files import WriteMode
 
 
 class DropboxHandler:
+    
+    # inside DropboxHandler
+    def dropbox_cursor(self, session_start_result, offset):
+        from dropbox.files import UploadSessionCursor
+        return UploadSessionCursor(session_start_result.session_id, offset)
+    
+    def dropbox_commit_info(self, path):
+        from dropbox.files import CommitInfo, WriteMode
+        return CommitInfo(path=path, mode=WriteMode("overwrite"))
+        
     def __init__(self, app_key, app_secret, refresh_token):
         self.app_key = app_key
         self.app_secret = app_secret
