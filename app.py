@@ -1,7 +1,11 @@
 import os
+import threading
 import time
 import requests
+from flask import Flask
 from dropbox_handler import DropboxHandler
+
+app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_KEY = os.environ.get("APP_KEY")
@@ -13,6 +17,11 @@ handler = DropboxHandler(APP_KEY, APP_SECRET, REFRESH_TOKEN)
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 last_update_id = None
+
+
+@app.route("/")
+def home():
+    return "Bot is running."
 
 
 def send_message(chat_id, text):
@@ -44,7 +53,6 @@ def process_video(chat_id, file_id, file_name, file_size):
         edit_message(chat_id, message_id, "File exceeds 2GB limit.")
         return
 
-    # Get file path
     file_response = requests.get(
         f"{TELEGRAM_API}/getFile",
         params={"file_id": file_id},
@@ -57,7 +65,6 @@ def process_video(chat_id, file_id, file_name, file_size):
 
     response = requests.get(download_url, stream=True, timeout=600)
 
-    # Progress thresholds
     if file_size < 700 * 1024 * 1024:
         thresholds = [50, 100]
     else:
@@ -138,4 +145,8 @@ def poll_updates():
 
 if __name__ == "__main__":
     print("Bot started in polling mode...")
-    poll_updates()
+
+    threading.Thread(target=poll_updates).start()
+
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
