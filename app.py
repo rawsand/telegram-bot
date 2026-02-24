@@ -1,10 +1,7 @@
 import os
+import time
 import requests
-import threading
-from flask import Flask, request
 from dropbox_handler import DropboxHandler
-
-app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 APP_KEY = os.environ.get("APP_KEY")
@@ -14,6 +11,8 @@ REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN")
 handler = DropboxHandler(APP_KEY, APP_SECRET, REFRESH_TOKEN)
 
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
+
+last_update_id = None
 
 
 def send_message(chat_id, text):
@@ -36,99 +35,107 @@ def edit_message(chat_id, message_id, text):
     )
 
 
-def process_upload(chat_id, file_id, file_name, file_size):
-    try:
-        # Send initial message
-        progress_msg = send_message(chat_id, "Starting upload...")
-        message_id = progress_msg["result"]["message_id"]
+def process_video(chat_id, file_id, file_name, file_size):
 
-        # 2GB limit check
-        if file_size > 2 * 1024 * 1024 * 1024:
-            edit_message(chat_id, message_id, "File exceeds 2GB limit.")
-            return
+    progress_msg = send_message(chat_id, "Starting upload...")
+    message_id = progress_msg["result"]["message_id"]
 
-        # Get file path
-        file_response = requests.get(
-            f"{TELEGRAM_API}/getFile",
-            params={"file_id": file_id},
-            timeout=60,
-        ).json()
+    if file_size > 2 * 1024 * 1024 * 1024:
+        edit_message(chat_id, message_id, "File exceeds 2GB limit.")
+        return
 
-        file_path = file_response["result"]["file_path"]
+    # Get file path
+    file_response = requests.get(
+        f"{TELEGRAM_API}/getFile",
+        params={"file_id": file_id},
+        timeout=60,
+    ).json()
 
-        download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+    file_path = file_response["result"]["file_path"]
 
-        response = requests.get(download_url, stream=True, timeout=300)
+    download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
 
-        # Progress thresholds
-        if file_size < 700 * 1024 * 1024:
-            thresholds = [50, 100]
-        else:
-            thresholds = [20, 40, 60, 80, 100]
+    response = requests.get(download_url, stream=True, timeout=600)
 
-        sent_thresholds = set()
-
-        def progress_callback(uploaded, total):
-            percent = int((uploaded / total) * 100)
-            for t in thresholds:
-                if percent >= t and t not in sent_thresholds:
-                    sent_thresholds.add(t)
-                    edit_message(chat_id, message_id, f"Uploading... {t}%")
-
-        success = handler.upload_stream(
-            response.raw,
-            file_size,
-            "/Latest_Video.mp4",
-            progress_callback
-        )
-
-        if not success:
-            edit_message(chat_id, message_id, "Upload failed.")
-            return
-
-        link = handler.generate_share_link("/Latest_Video.mp4")
-
-        edit_message(
-            chat_id,
-            message_id,
-            f"Upload Successful ✅\n\nDropbox Link:\n{link}"
-        )
-
-    except Exception as e:
-        print("Processing error:", e)
-
-
-@app.route("/")
-def home():
-    return "Bot is running."
-
-
-@app.route("/webhook", methods=["POST"])
-def webhook():
-    data = request.get_json()
-
-    if "message" not in data:
-        return "OK", 200
-
-    message = data["message"]
-    chat_id = message["chat"]["id"]
-
-    if "video" in message:
-        file_info = message["video"]
-    elif "document" in message:
-        file_info = message["document"]
+    # Progress thresholds
+    if file_size < 700 * 1024 * 1024:
+        thresholds = [50, 100]
     else:
-        return "OK", 200
+        thresholds = [20, 40, 60, 80, 100]
 
-    file_id = file_info["file_id"]
-    file_name = file_info.get("file_name", "uploaded_video.mp4")
-    file_size = file_info.get("file_size", 0)
+    sent_thresholds = set()
 
-    # Start background thread
-    threading.Thread(
-        target=process_upload,
-        args=(chat_id, file_id, file_name, file_size)
-    ).start()
+    def progress_callback(uploaded, total):
+        percent = int((uploaded / total) * 100)
+        for t in thresholds:
+            if percent >= t and t not in sent_thresholds:
+                sent_thresholds.add(t)
+                edit_message(chat_id, message_id, f"Uploading... {t}%")
 
-    # Immediately respond to Telegram
-    return "OK", 200
+    success = handler.upload_stream(
+        response.raw,
+        file_size,
+        "/Latest_Video.mp4",
+        progress_callback
+    )
+
+    if not success:
+        edit_message(chat_id, message_id, "Upload failed.")
+        return
+
+    link = handler.generate_share_link("/Latest_Video.mp4")
+
+    edit_message(
+        chat_id,
+        message_id,
+        f"Upload Successful ✅\n\nDropbox Link:\n{link}"
+    )
+
+
+def poll_updates():
+    global last_update_id
+
+    while True:
+        try:
+            params = {"timeout": 30}
+            if last_update_id:
+                params["offset"] = last_update_id + 1
+
+            response = requests.get(
+                f"{TELEGRAM_API}/getUpdates",
+                params=params,
+                timeout=60,
+            ).json()
+
+            if "result" in response:
+                for update in response["result"]:
+                    last_update_id = update["update_id"]
+
+                    if "message" not in update:
+                        continue
+
+                    message = update["message"]
+                    chat_id = message["chat"]["id"]
+
+                    if "video" in message:
+                        file_info = message["video"]
+                    elif "document" in message:
+                        file_info = message["document"]
+                    else:
+                        continue
+
+                    file_id = file_info["file_id"]
+                    file_name = file_info.get("file_name", "uploaded_video.mp4")
+                    file_size = file_info.get("file_size", 0)
+
+                    process_video(chat_id, file_id, file_name, file_size)
+
+        except Exception as e:
+            print("Polling error:", e)
+
+        time.sleep(1)
+
+
+if __name__ == "__main__":
+    print("Bot started in polling mode...")
+    poll_updates()
