@@ -53,6 +53,7 @@ def process_video(chat_id, file_id, file_name, file_size):
         edit_message(chat_id, message_id, "File exceeds 2GB limit.")
         return
 
+    # Get Telegram file path
     file_response = requests.get(
         f"{TELEGRAM_API}/getFile",
         params={"file_id": file_id},
@@ -60,11 +61,15 @@ def process_video(chat_id, file_id, file_name, file_size):
     ).json()
 
     file_path = file_response["result"]["file_path"]
-
     download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
 
-    response = requests.get(download_url, stream=True, timeout=600)
+    telegram_response = requests.get(
+        download_url,
+        stream=True,
+        timeout=600,
+    )
 
+    # Progress thresholds
     if file_size < 700 * 1024 * 1024:
         thresholds = [50, 100]
     else:
@@ -79,8 +84,8 @@ def process_video(chat_id, file_id, file_name, file_size):
                 sent_thresholds.add(t)
                 edit_message(chat_id, message_id, f"Uploading... {t}%")
 
-    success = handler.upload_stream(
-        response.raw,
+    success = handler.upload_from_telegram_stream(
+        telegram_response,
         file_size,
         "/Latest_Video.mp4",
         progress_callback
@@ -144,7 +149,7 @@ def poll_updates():
 
 
 if __name__ == "__main__":
-    print("Bot started in polling mode...")
+    print("Bot started in hybrid polling mode...")
 
     threading.Thread(target=poll_updates).start()
 
