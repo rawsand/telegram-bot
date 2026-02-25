@@ -59,6 +59,10 @@ def process_video(chat_id, file_id, file_name, file_size):
             timeout=60,
         ).json()
 
+        if not file_response.get("ok"):
+            edit_message(chat_id, debug_id, f"DEBUG: getFile failed -> {file_response}")
+            return
+
         file_path = file_response["result"]["file_path"]
 
         edit_message(chat_id, debug_id, "DEBUG: File path received.")
