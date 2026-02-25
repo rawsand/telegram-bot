@@ -2,6 +2,7 @@ import os
 import threading
 import time
 import requests
+import dropbox
 from flask import Flask
 from dropbox_handler import DropboxHandler
 
@@ -46,62 +47,108 @@ def edit_message(chat_id, message_id, text):
 
 def process_video(chat_id, file_id, file_name, file_size):
 
-    progress_msg = send_message(chat_id, "Starting upload...")
-    message_id = progress_msg["result"]["message_id"]
+    debug_msg = send_message(chat_id, "DEBUG: File received.")
+    debug_id = debug_msg["result"]["message_id"]
 
-    if file_size > 2 * 1024 * 1024 * 1024:
-        edit_message(chat_id, message_id, "File exceeds 2GB limit.")
-        return
+    try:
+        edit_message(chat_id, debug_id, "DEBUG: Getting Telegram file path...")
 
-    # Get Telegram file path
-    file_response = requests.get(
-        f"{TELEGRAM_API}/getFile",
-        params={"file_id": file_id},
-        timeout=60,
-    ).json()
+        file_response = requests.get(
+            f"{TELEGRAM_API}/getFile",
+            params={"file_id": file_id},
+            timeout=60,
+        ).json()
 
-    file_path = file_response["result"]["file_path"]
-    download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
+        file_path = file_response["result"]["file_path"]
 
-    telegram_response = requests.get(
-        download_url,
-        stream=True,
-        timeout=600,
-    )
+        edit_message(chat_id, debug_id, "DEBUG: File path received.")
 
-    # Progress thresholds
-    if file_size < 700 * 1024 * 1024:
-        thresholds = [50, 100]
-    else:
-        thresholds = [20, 40, 60, 80, 100]
+        download_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
 
-    sent_thresholds = set()
+        edit_message(chat_id, debug_id, "DEBUG: Starting Telegram download...")
 
-    def progress_callback(uploaded, total):
-        percent = int((uploaded / total) * 100)
-        for t in thresholds:
-            if percent >= t and t not in sent_thresholds:
-                sent_thresholds.add(t)
-                edit_message(chat_id, message_id, f"Uploading... {t}%")
+        telegram_response = requests.get(
+            download_url,
+            stream=True,
+            timeout=600,
+        )
 
-    success = handler.upload_from_telegram_stream(
-        telegram_response,
-        file_size,
-        "/Latest_Video.mp4",
-        progress_callback
-    )
+        edit_message(chat_id, debug_id, "DEBUG: Telegram download connection established.")
 
-    if not success:
-        edit_message(chat_id, message_id, "Upload failed.")
-        return
+        progress_msg = send_message(chat_id, "Starting upload...")
+        message_id = progress_msg["result"]["message_id"]
 
-    link = handler.generate_share_link("/Latest_Video.mp4")
+        CHUNK_SIZE = 8 * 1024 * 1024
+        uploaded = 0
 
-    edit_message(
-        chat_id,
-        message_id,
-        f"Upload Successful ✅\n\nDropbox Link:\n{link}"
-    )
+        edit_message(chat_id, debug_id, "DEBUG: Waiting for first chunk...")
+
+        first_chunk = next(telegram_response.iter_content(CHUNK_SIZE))
+
+        if not first_chunk:
+            edit_message(chat_id, debug_id, "DEBUG: No first chunk received!")
+            return
+
+        edit_message(chat_id, debug_id, "DEBUG: First chunk received. Starting Dropbox session...")
+
+        dbx = handler.get_client()
+
+        session_start = dbx.files_upload_session_start(first_chunk)
+        uploaded += len(first_chunk)
+
+        edit_message(chat_id, debug_id, "DEBUG: Dropbox session started.")
+
+        cursor = dropbox.files.UploadSessionCursor(
+            session_id=session_start.session_id,
+            offset=uploaded,
+        )
+
+        commit = dropbox.files.CommitInfo(
+            path="/Latest_Video.mp4",
+            mode=dropbox.files.WriteMode("overwrite"),
+        )
+
+        # thresholds
+        if file_size < 700 * 1024 * 1024:
+            thresholds = [50, 100]
+        else:
+            thresholds = [20, 40, 60, 80, 100]
+
+        sent_thresholds = set()
+
+        for chunk in telegram_response.iter_content(CHUNK_SIZE):
+            if not chunk:
+                break
+
+            dbx.files_upload_session_append_v2(chunk, cursor)
+            uploaded += len(chunk)
+            cursor.offset = uploaded
+
+            percent = int((uploaded / file_size) * 100)
+
+            for t in thresholds:
+                if percent >= t and t not in sent_thresholds:
+                    sent_thresholds.add(t)
+                    edit_message(chat_id, message_id, f"Uploading... {t}%")
+
+        edit_message(chat_id, debug_id, "DEBUG: Finishing Dropbox session...")
+
+        dbx.files_upload_session_finish(b"", cursor, commit)
+
+        edit_message(chat_id, debug_id, "DEBUG: Upload finished. Generating link...")
+
+        link = handler.generate_share_link("/Latest_Video.mp4")
+
+        edit_message(
+            chat_id,
+            message_id,
+            f"Upload Successful ✅\n\nDropbox Link:\n{link}"
+        )
+
+        edit_message(chat_id, debug_id, "DEBUG: Done.")
+
+    except Exception as e:
+        edit_message(chat_id, debug_id, f"DEBUG ERROR: {str(e)}")
 
 
 def poll_updates():
