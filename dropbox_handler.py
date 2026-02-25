@@ -1,6 +1,7 @@
 import dropbox
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo
 
+
 class DropboxHandler:
 
     def __init__(self, app_key, app_secret, refresh_token):
@@ -15,16 +16,29 @@ class DropboxHandler:
             app_secret=self.app_secret,
         )
 
-    def upload_stream(self, file_stream, file_size, path, progress_callback=None):
+    def upload_from_telegram_stream(
+        self,
+        telegram_response,
+        total_size,
+        path,
+        progress_callback=None,
+    ):
         try:
             dbx = self.get_client()
             CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
 
             uploaded = 0
-            session_start = dbx.files_upload_session_start(
-                file_stream.read(CHUNK_SIZE)
+
+            # Start session
+            first_chunk = next(
+                telegram_response.iter_content(CHUNK_SIZE)
             )
-            uploaded += CHUNK_SIZE
+
+            session_start = dbx.files_upload_session_start(first_chunk)
+            uploaded += len(first_chunk)
+
+            if progress_callback:
+                progress_callback(uploaded, total_size)
 
             cursor = UploadSessionCursor(
                 session_id=session_start.session_id,
@@ -36,8 +50,8 @@ class DropboxHandler:
                 mode=WriteMode("overwrite"),
             )
 
-            while uploaded < file_size:
-                chunk = file_stream.read(CHUNK_SIZE)
+            # Append chunks
+            for chunk in telegram_response.iter_content(CHUNK_SIZE):
                 if not chunk:
                     break
 
@@ -46,9 +60,11 @@ class DropboxHandler:
                 cursor.offset = uploaded
 
                 if progress_callback:
-                    progress_callback(uploaded, file_size)
+                    progress_callback(uploaded, total_size)
 
+            # Finish session
             dbx.files_upload_session_finish(b"", cursor, commit)
+
             return True
 
         except Exception as e:
