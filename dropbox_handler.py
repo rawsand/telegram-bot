@@ -15,42 +15,46 @@ class DropboxHandler:
             app_secret=self.app_secret,
         )
 
-    def upload_stream(self, file_stream, path, total_size=None, progress_callback=None):
-        try:
-            CHUNK_SIZE = 8 * 1024 * 1024
-            dbx = self.get_client()
+    def upload_stream(self, file_stream, path, progress_callback=None, total_size=None):
+    try:
+        CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
+        dbx = self.get_client()
 
-            first_chunk = file_stream.read(CHUNK_SIZE)
-            if not first_chunk:
-                return False
+        first_chunk = file_stream.read(CHUNK_SIZE)
+        if not first_chunk:
+            raise Exception("No data received from source")
 
-            session = dbx.files_upload_session_start(first_chunk)
-            uploaded = len(first_chunk)
+        session_start = dbx.files_upload_session_start(first_chunk)
+        uploaded_bytes = len(first_chunk)
 
-            if progress_callback:
-                progress_callback(uploaded)
+        cursor = UploadSessionCursor(session_start.session_id, uploaded_bytes)
+        commit = CommitInfo(path=path, mode=WriteMode("overwrite"))
 
-            cursor = UploadSessionCursor(session.session_id, uploaded)
-            commit = CommitInfo(path=path, mode=WriteMode("overwrite"))
+        gap = 50 if total_size and total_size < 700 * 1024 * 1024 else 20
+        next_percent = gap
 
-            while True:
-                chunk = file_stream.read(CHUNK_SIZE)
-                if not chunk:
-                    break
+        while True:
+            chunk = file_stream.read(CHUNK_SIZE)
+            if not chunk:
+                break
 
-                dbx.files_upload_session_append_v2(chunk, cursor)
-                uploaded += len(chunk)
-                cursor.offset = uploaded
+            dbx.files_upload_session_append_v2(chunk, cursor)
+            uploaded_bytes += len(chunk)
+            cursor.offset = uploaded_bytes
 
-                if progress_callback:
-                    progress_callback(uploaded)
+            if progress_callback and total_size:
+                percent = int(uploaded_bytes / total_size * 100)
+                if percent >= next_percent:
+                    progress_callback(uploaded_bytes, next_percent, gap)
+                    next_percent += gap
 
-            dbx.files_upload_session_finish(b"", cursor, commit)
-            return True
+        dbx.files_upload_session_finish(b"", cursor, commit)
 
-        except Exception as e:
-            print("Dropbox upload error:", e)
-            return False
+        return True
+
+    except Exception as e:
+        print("UPLOAD ERROR FULL:", str(e))
+        raise
 
     def generate_share_link(self, path):
         dbx = self.get_client()
