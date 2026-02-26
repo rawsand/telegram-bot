@@ -15,7 +15,7 @@ class DropboxHandler:
             app_secret=self.app_secret,
         )
 
-    def upload_stream(self, file_stream, path, progress_callback=None, total_size=None):
+def upload_stream(self, file_stream, path, progress_callback=None, total_size=None):
     try:
         CHUNK_SIZE = 8 * 1024 * 1024  # 8MB
         dbx = self.get_client()
