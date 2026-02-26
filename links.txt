@@ -8,7 +8,7 @@ The 50
 https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464757?hash=8effff&d=true
 
 Laughter Chef
-https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1428439?hash=c7a209&d=true
+https://pub-699838cc143d45d8b5ed463b9b3f4ea7.r2.dev/c3c931fa8589aed0c72ac71deabaf1b8?token=1772101371155
 
 Sky
 https://sonydaimenew.akamaized.net/hls/live/2037141/DAI21-criclive/std_lrh-800300010.m3u8?hdnea=exp=1771611983~acl=/*~id=29801388146740708322476424107492~hmac=aff2d0393b92d87c55dde6fda0314ddd8570b58d355f690c0d527c0d5fb40663
