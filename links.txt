@@ -1,5 +1,5 @@
 Master Chef
-https://hub.oreao-cdn.buzz/90fe9c9404b2636afe7769522772759b?token=1771866813143
+https://pub-699838cc143d45d8b5ed463b9b3f4ea7.r2.dev/c3c931fa8589aed0c72ac71deabaf1b8?token=1772101371155
 
 Wheel of fortune
 https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1469264?hash=bd0bca&d=true
