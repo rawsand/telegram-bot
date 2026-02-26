@@ -72,11 +72,14 @@ def edit_message(chat_id, message_id, text):
         json={"chat_id": chat_id, "message_id": message_id, "text": text},
     )
 
-# ================= MAIN LOGIC =================
+# ================= MAIN LOGIC ================= 
 def process_case_logic(chat_id, text):
     try:
-        file_match = re.search(r"File\s*Name\s*:\s*(.+\.mp4)", text, re.IGNORECASE)
-        link_match = re.search(r"https?://\S+", text)
+        # ✅ Extract file name (any .mp4 in message)
+        file_match = re.search(r"([A-Za-z0-9_\-.,() ]+\.mp4)", text)
+
+        # ✅ Extract first https link
+        link_match = re.search(r"https?://[^\s]+", text)
 
         if not file_match or not link_match:
             send_message(chat_id, "❌ Could not detect file name or link.")
@@ -109,7 +112,7 @@ def process_case_logic(chat_id, text):
             category_title = "Laughter Chef"
 
         else:
-            send_message(chat_id, "❌ Category not matched.")
+            send_message(chat_id, f"❌ Category not matched for file:\n{file_name}")
             return
 
         msg = send_message(chat_id, "Starting upload...")
