@@ -1,11 +1,11 @@
 import os
 import re
+import base64
 import requests
 import threading
 from datetime import datetime
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from dropbox_handler import DropboxHandler
-from dropbox.files import GetMetadataError
 
 app = Flask(__name__)
 
@@ -17,7 +17,7 @@ APP_KEY = os.environ.get("APP_KEY")
 APP_SECRET = os.environ.get("APP_SECRET")
 REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN")
 
-# Case 2 Dropbox (new separate account)
+# Case 2 Dropbox (separate account)
 APP_KEY_CASE2 = os.environ.get("APP_KEY_CASE2")
 APP_SECRET_CASE2 = os.environ.get("APP_SECRET_CASE2")
 REFRESH_TOKEN_CASE2 = os.environ.get("REFRESH_TOKEN_CASE2")
@@ -31,6 +31,8 @@ handler_case2 = DropboxHandler(APP_KEY_CASE2, APP_SECRET_CASE2, REFRESH_TOKEN_CA
 
 pending_links = {}
 
+# ================= ROUTES =================
+
 @app.route("/")
 def home():
     return "Bot running"
@@ -39,22 +41,28 @@ def home():
 def webhook():
     data = request.get_json()
 
-    # ===== CASE 2 BUTTON CALLBACK =====
+    # ===== BUTTON CALLBACK =====
     if "callback_query" in data:
         query = data["callback_query"]
         chat_id = query["message"]["chat"]["id"]
-        message_id = query["message"]["message_id"]
         choice = query["data"]
 
         url = pending_links.get(chat_id)
+
         if not url:
             send_message(chat_id, "❌ No pending link found.")
             return "OK"
 
         if choice == "DropBoxLink":
-            threading.Thread(target=process_dropbox_case2, args=(chat_id, url)).start()
+            threading.Thread(
+                target=process_dropbox_case2,
+                args=(chat_id, url)
+            ).start()
         else:
-            threading.Thread(target=update_github_only, args=(chat_id, url, choice)).start()
+            threading.Thread(
+                target=update_github_only,
+                args=(chat_id, url, choice)
+            ).start()
 
         del pending_links[chat_id]
         return "OK"
@@ -67,16 +75,14 @@ def webhook():
             text = data["message"]["text"]
 
             if text == "/start":
-                send_message(chat_id, "Send a link.")
-
-            # CASE 2: Direct raw link
+                send_message(chat_id, "Send a direct link.")
             elif text.startswith("http"):
                 pending_links[chat_id] = text
                 show_buttons(chat_id)
 
     return "OK"
 
-# ================= UTILITIES =================
+# ================= TELEGRAM =================
 
 def send_message(chat_id, text):
     return requests.post(
@@ -91,7 +97,7 @@ def edit_message(chat_id, message_id, text):
             "chat_id": chat_id,
             "message_id": message_id,
             "text": text
-        },
+        }
     )
 
 def show_buttons(chat_id):
@@ -120,18 +126,17 @@ def show_buttons(chat_id):
         }
     )
 
-# ================= CASE 2 LOGIC =================
+# ================= CASE 2 =================
 
 def process_dropbox_case2(chat_id, url):
     try:
-        status_msg = send_message(chat_id, "🔍 Checking file...")
-        message_id = status_msg.json()["result"]["message_id"]
+        status = send_message(chat_id, "🔍 Checking file...")
+        message_id = status.json()["result"]["message_id"]
 
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
 
             total_size = int(r.headers.get("Content-Length", 0))
-
             filename = extract_filename(r.headers)
 
             dbx = handler_case2.get_client()
@@ -140,29 +145,30 @@ def process_dropbox_case2(chat_id, url):
             usage = dbx.users_get_space_usage()
             free_space = usage.allocation.get_individual().allocated - usage.used
 
-            if total_size > free_space:
+            if total_size and total_size > free_space:
                 edit_message(chat_id, message_id, "❌ Not enough Dropbox space.")
                 return
 
             filename = ensure_unique_filename(dbx, filename)
 
-            edit_message(chat_id, message_id, f"⬆ Starting upload...\nFile: {filename}")
+            edit_message(chat_id, message_id,
+                         f"⬆ Starting upload...\nFile: {filename}")
 
-            # ===== PROGRESS LOGIC =====
+            # ===== PROGRESS SETUP =====
             gap = 50 if total_size and total_size < 700 * 1024 * 1024 else 20
-            next_percent = gap
 
-            def progress_callback(uploaded_bytes):
-                nonlocal next_percent
-
+            def progress_callback(uploaded_bytes, next_percent, gap_value):
                 if not total_size:
                     return
 
                 percent = int((uploaded_bytes / total_size) * 100)
 
-                if percent >= next_percent:
-                    edit_message(chat_id, message_id, f"⬆ Uploading: {percent}%")
-                    next_percent += gap
+                if percent >= progress_callback.next_percent:
+                    edit_message(chat_id, message_id,
+                                 f"⬆ Uploading: {percent}%")
+                    progress_callback.next_percent += gap_value
+
+            progress_callback.next_percent = gap
 
             # ===== UPLOAD =====
             success = handler_case2.upload_stream(
@@ -178,10 +184,14 @@ def process_dropbox_case2(chat_id, url):
 
         link = handler_case2.generate_share_link(f"/{filename}")
 
+        # Update original link in GitHub under DropBoxLink
         update_github_link(url, "DropBoxLink")
 
-        edit_message(chat_id, message_id,
-                     f"✅ Upload successful!\n\nDropbox Link:\n{link}")
+        edit_message(
+            chat_id,
+            message_id,
+            f"✅ Upload successful!\n\nDropbox Link:\n{link}"
+        )
 
     except Exception as e:
         send_message(chat_id, f"❌ Error: {str(e)}")
@@ -199,12 +209,8 @@ def update_github_link(new_link, title=None):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/links.txt"
 
-    # Get file
     res = requests.get(api_url, headers=headers).json()
-
-    import base64
     decoded = base64.b64decode(res["content"]).decode()
-
     lines = decoded.splitlines()
 
     if title:
@@ -213,22 +219,15 @@ def update_github_link(new_link, title=None):
                 if i + 1 < len(lines):
                     lines[i + 1] = new_link
                 break
-    else:
-        # Replace first URL found (fallback case)
-        for i in range(len(lines)):
-            if lines[i].startswith("http"):
-                lines[i] = new_link
-                break
 
     updated_content = "\n".join(lines)
     encoded = base64.b64encode(updated_content.encode()).decode()
 
-    # Commit update
     requests.put(
         api_url,
         headers=headers,
         json={
-            "message": f"Update link for {title if title else 'default'}",
+            "message": f"Update link for {title}",
             "content": encoded,
             "sha": res["sha"]
         }
@@ -239,9 +238,9 @@ def update_github_link(new_link, title=None):
 def extract_filename(headers):
     cd = headers.get("Content-Disposition")
     if cd:
-        fname = re.findall('filename="?([^"]+)"?', cd)
-        if fname:
-            return fname[0]
+        match = re.findall('filename="?([^"]+)"?', cd)
+        if match:
+            return match[0]
 
     content_type = headers.get("Content-Type", "")
     if "mp4" in content_type:
@@ -252,18 +251,12 @@ def extract_filename(headers):
 def ensure_unique_filename(dbx, filename):
     try:
         dbx.files_get_metadata(f"/{filename}")
-
-        # If no error, file exists → add timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name, ext = os.path.splitext(filename)
         return f"{name}_{timestamp}{ext}"
-
     except Exception as e:
-        # If file not found → safe to use original filename
         if "not_found" in str(e):
             return filename
-
-        # Any other error → re-raise
         raise e
 
 # ================= MAIN =================
