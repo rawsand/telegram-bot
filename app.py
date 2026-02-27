@@ -114,7 +114,8 @@ def show_buttons(chat_id):
 
 def process_dropbox_case2(chat_id, url):
     try:
-        send_message(chat_id, "🔍 Checking file...")
+        status_msg = send_message(chat_id, "🔍 Checking file...")
+        message_id = status_msg.json()["result"]["message_id"]
 
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
@@ -123,33 +124,54 @@ def process_dropbox_case2(chat_id, url):
 
             filename = extract_filename(r.headers)
 
-            # Check Dropbox space
             dbx = handler_case2.get_client()
+
+            # Check space
             usage = dbx.users_get_space_usage()
             free_space = usage.allocation.get_individual().allocated - usage.used
 
             if total_size > free_space:
-                send_message(chat_id, "❌ Not enough Dropbox space.")
+                edit_message(chat_id, message_id, "❌ Not enough Dropbox space.")
                 return
 
             filename = ensure_unique_filename(dbx, filename)
 
-            send_message(chat_id, f"⬆ Starting upload: {filename}")
+            edit_message(chat_id, message_id, f"⬆ Starting upload...\nFile: {filename}")
 
+            # ===== PROGRESS LOGIC =====
+            gap = 50 if total_size and total_size < 700 * 1024 * 1024 else 20
+            next_percent = gap
+
+            def progress_callback(uploaded_bytes):
+                nonlocal next_percent
+
+                if not total_size:
+                    return
+
+                percent = int((uploaded_bytes / total_size) * 100)
+
+                if percent >= next_percent:
+                    edit_message(chat_id, message_id, f"⬆ Uploading: {percent}%")
+                    next_percent += gap
+
+            # ===== UPLOAD =====
             success = handler_case2.upload_stream(
                 r.raw,
-                f"/{filename}"
+                f"/{filename}",
+                progress_callback=progress_callback,
+                total_size=total_size
             )
 
         if not success:
-            send_message(chat_id, "❌ Upload failed.")
+            edit_message(chat_id, message_id, "❌ Upload failed.")
             return
 
         link = handler_case2.generate_share_link(f"/{filename}")
 
         update_github_link(url, "DropBoxLink")
 
-        send_message(chat_id, f"✅ Upload successful!\n{link}")
+        edit_message(chat_id, message_id,
+                     f"✅ Upload successful!\n\nDropbox Link:\n{link}")
 
     except Exception as e:
         send_message(chat_id, f"❌ Error: {str(e)}")
