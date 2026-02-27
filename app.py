@@ -2,50 +2,64 @@ import os
 import re
 import requests
 import threading
-from flask import Flask, request
+from datetime import datetime
+from flask import Flask, request, jsonify
 from dropbox_handler import DropboxHandler
+from dropbox.files import GetMetadataError
 
 app = Flask(__name__)
 
-# ================= ENV VARIABLES =================
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-
-MC_APP_KEY = os.environ.get("MC_APP_KEY")
-MC_APP_SECRET = os.environ.get("MC_APP_SECRET")
-MC_REFRESH_TOKEN = os.environ.get("MC_REFRESH_TOKEN")
-
-WOF_APP_KEY = os.environ.get("WOF_APP_KEY")
-WOF_APP_SECRET = os.environ.get("WOF_APP_SECRET")
-WOF_REFRESH_TOKEN = os.environ.get("WOF_REFRESH_TOKEN")
-
-FIFTY_APP_KEY = os.environ.get("FIFTY_APP_KEY")
-FIFTY_APP_SECRET = os.environ.get("FIFTY_APP_SECRET")
-FIFTY_REFRESH_TOKEN = os.environ.get("FIFTY_REFRESH_TOKEN")
-
-LC_APP_KEY = os.environ.get("LC_APP_KEY")
-LC_APP_SECRET = os.environ.get("LC_APP_SECRET")
-LC_REFRESH_TOKEN = os.environ.get("LC_REFRESH_TOKEN")
-
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-GITHUB_REPO = os.environ.get("GITHUB_REPO")  # username/repo
-
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# ================= DROPBOX HANDLERS =================
-mc_handler = DropboxHandler(MC_APP_KEY, MC_APP_SECRET, MC_REFRESH_TOKEN)
-wof_handler = DropboxHandler(WOF_APP_KEY, WOF_APP_SECRET, WOF_REFRESH_TOKEN)
-fifty_handler = DropboxHandler(FIFTY_APP_KEY, FIFTY_APP_SECRET, FIFTY_REFRESH_TOKEN)
-lc_handler = DropboxHandler(LC_APP_KEY, LC_APP_SECRET, LC_REFRESH_TOKEN)
+# Case 1 Dropbox (existing)
+APP_KEY = os.environ.get("APP_KEY")
+APP_SECRET = os.environ.get("APP_SECRET")
+REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN")
 
-# ================= ROUTES =================
+# Case 2 Dropbox (new separate account)
+APP_KEY_CASE2 = os.environ.get("APP_KEY_CASE2")
+APP_SECRET_CASE2 = os.environ.get("APP_SECRET_CASE2")
+REFRESH_TOKEN_CASE2 = os.environ.get("REFRESH_TOKEN_CASE2")
+
+# GitHub
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_REPO = os.environ.get("GITHUB_REPO")
+
+handler_case1 = DropboxHandler(APP_KEY, APP_SECRET, REFRESH_TOKEN)
+handler_case2 = DropboxHandler(APP_KEY_CASE2, APP_SECRET_CASE2, REFRESH_TOKEN_CASE2)
+
+pending_links = {}
+
 @app.route("/")
 def home():
-    return "Bot is running"
+    return "Bot running"
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
 
+    # ===== CASE 2 BUTTON CALLBACK =====
+    if "callback_query" in data:
+        query = data["callback_query"]
+        chat_id = query["message"]["chat"]["id"]
+        message_id = query["message"]["message_id"]
+        choice = query["data"]
+
+        url = pending_links.get(chat_id)
+        if not url:
+            send_message(chat_id, "❌ No pending link found.")
+            return "OK"
+
+        if choice == "DropBoxLink":
+            threading.Thread(target=process_dropbox_case2, args=(chat_id, url)).start()
+        else:
+            threading.Thread(target=update_github_only, args=(chat_id, url, choice)).start()
+
+        del pending_links[chat_id]
+        return "OK"
+
+    # ===== MESSAGE HANDLING =====
     if "message" in data:
         chat_id = data["message"]["chat"]["id"]
 
@@ -53,154 +67,154 @@ def webhook():
             text = data["message"]["text"]
 
             if text == "/start":
-                send_message(chat_id, "Forward the full message containing file name and download link.")
-            else:
-                threading.Thread(target=process_case_logic, args=(chat_id, text)).start()
+                send_message(chat_id, "Send a link.")
+
+            # CASE 2: Direct raw link
+            elif text.startswith("http"):
+                pending_links[chat_id] = text
+                show_buttons(chat_id)
 
     return "OK"
 
-# ================= TELEGRAM FUNCTIONS =================
+# ================= UTILITIES =================
+
 def send_message(chat_id, text):
     return requests.post(
         f"{TELEGRAM_API}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
+        json={"chat_id": chat_id, "text": text}
     )
 
-def edit_message(chat_id, message_id, text):
+def show_buttons(chat_id):
+    keyboard = {
+        "inline_keyboard": [
+            [
+                {"text": "Sky", "callback_data": "Sky"},
+                {"text": "Willow", "callback_data": "Willow"}
+            ],
+            [
+                {"text": "Prime1", "callback_data": "Prime1"},
+                {"text": "Prime2", "callback_data": "Prime2"}
+            ],
+            [
+                {"text": "DropBoxLink", "callback_data": "DropBoxLink"}
+            ]
+        ]
+    }
+
     requests.post(
-        f"{TELEGRAM_API}/editMessageText",
-        json={"chat_id": chat_id, "message_id": message_id, "text": text},
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": "Select destination:",
+            "reply_markup": keyboard
+        }
     )
 
-# ================= MAIN LOGIC ================= 
-def process_case_logic(chat_id, text):
+# ================= CASE 2 LOGIC =================
+
+def process_dropbox_case2(chat_id, url):
     try:
-        # ✅ Extract file name (any .mp4 in message)
-        file_match = re.search(r"([A-Za-z0-9_\-.,() ]+\.mp4)", text)
+        send_message(chat_id, "🔍 Checking file...")
 
-        # ✅ Extract first https link
-        link_match = re.search(r"https?://[^\s]+", text)
-
-        if not file_match or not link_match:
-            send_message(chat_id, "❌ Could not detect file name or link.")
-            return
-
-        file_name = file_match.group(1).strip()
-        download_url = link_match.group(0).strip()
-
-        lower_name = file_name.lower()
-
-        # ===== CATEGORY MATCHING =====
-        if "masterchef" in lower_name:
-            handler = mc_handler
-            dropbox_path = "/MasterChef_Latest.mp4"
-            category_title = "Master Chef"
-
-        elif "wheel" in lower_name:
-            handler = wof_handler
-            dropbox_path = "/WheelOfFortune_Latest.mp4"
-            category_title = "Wheel of Fortune"
-
-        elif "the_50" in lower_name or "the50" in lower_name or " 50" in lower_name:
-            handler = fifty_handler
-            dropbox_path = "/The50_Latest.mp4"
-            category_title = "The 50"
-
-        elif "laughter" in lower_name:
-            handler = lc_handler
-            dropbox_path = "/LaughterChef_Latest.mp4"
-            category_title = "Laughter Chef"
-
-        else:
-            send_message(chat_id, f"❌ Category not matched for file:\n{file_name}")
-            return
-
-        msg = send_message(chat_id, "Starting upload...")
-        message_id = msg.json()["result"]["message_id"]
-
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "*/*"
-        }
-
-        with requests.get(download_url, stream=True, headers=headers) as r:
+        with requests.get(url, stream=True) as r:
             r.raise_for_status()
+
             total_size = int(r.headers.get("Content-Length", 0))
 
-            def progress_callback(uploaded_bytes, next_percent, gap):
-                if not total_size:
-                    return
+            filename = extract_filename(r.headers)
 
-                percent = int(uploaded_bytes / total_size * 100)
-                if percent >= progress_callback.next_percent:
-                    edit_message(chat_id, message_id, f"Uploading: {percent}%")
-                    progress_callback.next_percent += gap
+            # Check Dropbox space
+            dbx = handler_case2.get_client()
+            usage = dbx.users_get_space_usage()
+            free_space = usage.allocation.get_individual().allocated - usage.used
 
-            progress_callback.next_percent = 20 if total_size >= 700*1024*1024 else 50
+            if total_size > free_space:
+                send_message(chat_id, "❌ Not enough Dropbox space.")
+                return
 
-            success = handler.upload_stream(
+            filename = ensure_unique_filename(dbx, filename)
+
+            send_message(chat_id, f"⬆ Starting upload: {filename}")
+
+            success = handler_case2.upload_stream(
                 r.raw,
-                dropbox_path,
-                progress_callback=progress_callback,
-                total_size=total_size
+                f"/{filename}"
             )
 
         if not success:
             send_message(chat_id, "❌ Upload failed.")
             return
 
-        dropbox_link = handler.generate_share_link(dropbox_path)
+        link = handler_case2.generate_share_link(f"/{filename}")
 
-        update_github_links(category_title, download_url)
+        update_github_link(url)
 
-        send_message(chat_id, f"✅ Upload successful!\nDropbox Link:\n{dropbox_link}")
+        send_message(chat_id, f"✅ Upload successful!\n{link}")
 
     except Exception as e:
         send_message(chat_id, f"❌ Error: {str(e)}")
 
-# ================= GITHUB UPDATE =================
-def update_github_links(category_title, new_original_link):
+# ================= GITHUB =================
+
+def update_github_only(chat_id, url, title):
     try:
-        url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/links.txt"
-        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+        update_github_link(url, title)
+        send_message(chat_id, "✅ GitHub updated successfully.")
+    except Exception as e:
+        send_message(chat_id, f"❌ GitHub error: {str(e)}")
 
-        res = requests.get(url, headers=headers)
-        data = res.json()
+def update_github_link(new_link, title=None):
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/links.txt"
 
-        import base64
-        decoded = base64.b64decode(data["content"]).decode()
+    res = requests.get(api_url, headers=headers).json()
+    content = requests.utils.unquote(res["content"])
+    import base64
+    decoded = base64.b64decode(res["content"]).decode()
 
-        lines = decoded.split("\n")
-        updated_lines = []
-        inside_block = False
+    if title:
+        pattern = rf"({title}.*?\n)(https?://.*)"
+        decoded = re.sub(pattern, rf"\1{new_link}", decoded, flags=re.DOTALL)
+    else:
+        decoded = re.sub(r"https?://.*", new_link, decoded, count=1)
 
-        for line in lines:
-            if category_title in line:
-                inside_block = True
-                updated_lines.append(line)
-                continue
+    encoded = base64.b64encode(decoded.encode()).decode()
 
-            if inside_block and line.startswith("http"):
-                updated_lines.append(new_original_link)
-                inside_block = False
-            else:
-                updated_lines.append(line)
+    requests.put(
+        api_url,
+        headers=headers,
+        json={
+            "message": "Update link",
+            "content": encoded,
+            "sha": res["sha"]
+        }
+    )
 
-        updated_content = "\n".join(updated_lines)
-        encoded = base64.b64encode(updated_content.encode()).decode()
+# ================= FILENAME =================
 
-        requests.put(
-            url,
-            headers=headers,
-            json={
-                "message": f"Updated link for {category_title}",
-                "content": encoded,
-                "sha": data["sha"],
-            },
-        )
-    except:
-        pass
+def extract_filename(headers):
+    cd = headers.get("Content-Disposition")
+    if cd:
+        fname = re.findall('filename="?([^"]+)"?', cd)
+        if fname:
+            return fname[0]
 
+    content_type = headers.get("Content-Type", "")
+    if "mp4" in content_type:
+        return "DirectUpload.mp4"
+
+    return "DirectUpload.bin"
+
+def ensure_unique_filename(dbx, filename):
+    try:
+        dbx.files_get_metadata(f"/{filename}")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        name, ext = os.path.splitext(filename)
+        return f"{name}_{timestamp}{ext}"
+    except GetMetadataError:
+        return filename
+
+# ================= MAIN =================
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
