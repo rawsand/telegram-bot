@@ -147,7 +147,7 @@ def process_dropbox_case2(chat_id, url):
 
         link = handler_case2.generate_share_link(f"/{filename}")
 
-        update_github_link(url)
+        update_github_link(url, "DropBoxLink")
 
         send_message(chat_id, f"✅ Upload successful!\n{link}")
 
