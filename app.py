@@ -84,6 +84,16 @@ def send_message(chat_id, text):
         json={"chat_id": chat_id, "text": text}
     )
 
+def edit_message(chat_id, message_id, text):
+    requests.post(
+        f"{TELEGRAM_API}/editMessageText",
+        json={
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text
+        },
+    )
+
 def show_buttons(chat_id):
     keyboard = {
         "inline_keyboard": [
