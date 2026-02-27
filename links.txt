@@ -1,5 +1,5 @@
 Master Chef
-https://filetolinkneon4-484f8cd71236.herokuapp.com/stream/1514201?hash=fbf584&d=true
+https://file-to-link-2zyro-b5b2da12a955.herokuapp.com/dl/69a15c8069449d3c2c4ee0e6
 
 Wheel of fortune
 https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1469264?hash=bd0bca&d=true
