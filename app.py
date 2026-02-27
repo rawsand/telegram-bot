@@ -246,7 +246,7 @@ def extract_filename(headers):
     if "mp4" in content_type:
         return "DirectUpload.mp4"
 
-    return "DirectUpload.bin"
+    return "DirectUpload.mkv"
 
 def ensure_unique_filename(dbx, filename):
     try:
