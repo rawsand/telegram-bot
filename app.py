@@ -220,11 +220,19 @@ def extract_filename(headers):
 def ensure_unique_filename(dbx, filename):
     try:
         dbx.files_get_metadata(f"/{filename}")
+
+        # If no error, file exists → add timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         name, ext = os.path.splitext(filename)
         return f"{name}_{timestamp}{ext}"
-    except GetMetadataError:
-        return filename
+
+    except Exception as e:
+        # If file not found → safe to use original filename
+        if "not_found" in str(e):
+            return filename
+
+        # Any other error → re-raise
+        raise e
 
 # ================= MAIN =================
 
