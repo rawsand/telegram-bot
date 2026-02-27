@@ -167,24 +167,36 @@ def update_github_link(new_link, title=None):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/links.txt"
 
+    # Get file
     res = requests.get(api_url, headers=headers).json()
-    content = requests.utils.unquote(res["content"])
+
     import base64
     decoded = base64.b64decode(res["content"]).decode()
 
+    lines = decoded.splitlines()
+
     if title:
-        pattern = rf"({title}.*?\n)(https?://.*)"
-        decoded = re.sub(pattern, rf"\1{new_link}", decoded, flags=re.DOTALL)
+        for i in range(len(lines)):
+            if lines[i].strip().lower() == title.strip().lower():
+                if i + 1 < len(lines):
+                    lines[i + 1] = new_link
+                break
     else:
-        decoded = re.sub(r"https?://.*", new_link, decoded, count=1)
+        # Replace first URL found (fallback case)
+        for i in range(len(lines)):
+            if lines[i].startswith("http"):
+                lines[i] = new_link
+                break
 
-    encoded = base64.b64encode(decoded.encode()).decode()
+    updated_content = "\n".join(lines)
+    encoded = base64.b64encode(updated_content.encode()).decode()
 
+    # Commit update
     requests.put(
         api_url,
         headers=headers,
         json={
-            "message": "Update link",
+            "message": f"Update link for {title if title else 'default'}",
             "content": encoded,
             "sha": res["sha"]
         }
