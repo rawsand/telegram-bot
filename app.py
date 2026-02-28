@@ -10,10 +10,10 @@ from dropbox.files import WriteMode
 # ==============================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-DROPBOX_MC_TOKEN = os.environ.get("DROPBOX_MC_TOKEN")
-DROPBOX_WOF_TOKEN = os.environ.get("DROPBOX_WOF_TOKEN")
-DROPBOX_LC_TOKEN = os.environ.get("DROPBOX_LC_TOKEN")
-DROPBOX_LINK_TOKEN = os.environ.get("DROPBOX_LINK_TOKEN")
+DROPBOX_MC_TOKEN = os.environ.get("MC_REFRESH_TOKEN")
+DROPBOX_WOF_TOKEN = os.environ.get("WOF_REFRESH_TOKEN")
+DROPBOX_LC_TOKEN = os.environ.get("LC_REFRESH_TOKEN")
+DROPBOX_LINK_TOKEN = os.environ.get("REFRESH_TOKEN_CASE2")
 
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
