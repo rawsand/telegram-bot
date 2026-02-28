@@ -254,22 +254,31 @@ def show_delete_menu(chat_id):
     dbx = DROPBOXLINK_HANDLER.get_client()
 
     try:
-        result = dbx.files_list_folder("")
+        result = dbx.files_list_folder(path="", recursive=False)
         entries = result.entries
-    except Exception:
-        send_message(chat_id, "❌ Could not fetch file list.")
+
+        # handle pagination (even though you said max 5)
+        while result.has_more:
+            result = dbx.files_list_folder_continue(result.cursor)
+            entries.extend(result.entries)
+
+    except Exception as e:
+        send_message(chat_id, f"❌ Could not fetch file list: {str(e)}")
         return
 
-    if not entries:
-        send_message(chat_id, "⚠ No files found.")
+    # Filter only files
+    files = [e for e in entries if hasattr(e, "name")]
+
+    if not files:
+        send_message(chat_id, "⚠ No files found in DropBoxLink account.")
         return
 
     keyboard = []
 
-    for entry in entries:
+    for file in files:
         keyboard.append([{
-            "text": f"Delete {entry.name}",
-            "callback_data": f"delete_one::{entry.name}"
+            "text": f"Delete {file.name}",
+            "callback_data": f"delete_one::{file.name}"
         }])
 
     keyboard.append([{
