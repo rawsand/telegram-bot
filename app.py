@@ -1,273 +1,268 @@
 import os
 import requests
-import threading
 import dropbox
-from flask import Flask, request
 from dropbox.files import WriteMode
+from dropbox.exceptions import ApiError
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    ContextTypes,
+    filters
+)
 
-# ==============================
-# CONFIG
-# ==============================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-DROPBOX_MC_TOKEN = os.environ.get("MC_REFRESH_TOKEN")
-DROPBOX_WOF_TOKEN = os.environ.get("WOF_REFRESH_TOKEN")
-DROPBOX_LC_TOKEN = os.environ.get("LC_REFRESH_TOKEN")
-DROPBOX_LINK_TOKEN = os.environ.get("REFRESH_TOKEN_CASE2")
+# ===============================
+# DROPBOX INITIALIZATION (OAUTH)
+# ===============================
 
-BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
+def get_dropbox(app_key, app_secret, refresh_token):
+    return dropbox.Dropbox(
+        app_key=app_key,
+        app_secret=app_secret,
+        oauth2_refresh_token=refresh_token
+    )
 
-app = Flask(__name__)
+dbx_mc = get_dropbox(
+    os.getenv("MC_APP_KEY"),
+    os.getenv("MC_APP_SECRET"),
+    os.getenv("MC_REFRESH_TOKEN")
+)
 
-# ==============================
-# DROPBOX HANDLERS
-# ==============================
+dbx_wof = get_dropbox(
+    os.getenv("WOF_APP_KEY"),
+    os.getenv("WOF_APP_SECRET"),
+    os.getenv("WOF_REFRESH_TOKEN")
+)
 
-dbx_mc = dropbox.Dropbox(DROPBOX_MC_TOKEN)
-dbx_wof = dropbox.Dropbox(DROPBOX_WOF_TOKEN)
-dbx_lc = dropbox.Dropbox(DROPBOX_LC_TOKEN)
-dbx_link = dropbox.Dropbox(DROPBOX_LINK_TOKEN)
+dbx_lc = get_dropbox(
+    os.getenv("LC_APP_KEY"),
+    os.getenv("LC_APP_SECRET"),
+    os.getenv("LC_REFRESH_TOKEN")
+)
 
-# ==============================
-# FIXED FILE NAMES
-# ==============================
+dbx_link = get_dropbox(
+    os.getenv("LINK_APP_KEY"),
+    os.getenv("LINK_APP_SECRET"),
+    os.getenv("LINK_REFRESH_TOKEN")
+)
 
-FIXED_FILES = {
-    "mc": "MasterChef_Latest.mp4",
-    "wof": "WheelOfFortune_Latest.mp4",
-    "lc": "LaughterChef_Latest.mp4",
-}
+# ===============================
+# FILE NAME HELPERS
+# ===============================
 
-# ==============================
-# RUNTIME STORAGE
-# ==============================
+def extract_filename(url):
+    name = url.split("/")[-1].split("?")[0]
+    if "." not in name:
+        name += ".mp4"
+    return name
 
-pending_links = {}
-retry_upload_data = {}
+# ===============================
+# UPLOAD FUNCTION
+# ===============================
 
-# ==============================
-# TELEGRAM HELPERS
-# ==============================
-
-def send_message(chat_id, text, reply_markup=None):
-    payload = {
-        "chat_id": chat_id,
-        "text": text,
-    }
-    if reply_markup:
-        payload["reply_markup"] = reply_markup
-    requests.post(f"{BASE_URL}/sendMessage", json=payload)
-
-
-def edit_message(chat_id, message_id, text):
-    payload = {
-        "chat_id": chat_id,
-        "message_id": message_id,
-        "text": text
-    }
-    requests.post(f"{BASE_URL}/editMessageText", json=payload)
-
-
-# ==============================
-# DROPBOX UTILITIES
-# ==============================
-
-def get_free_space(dbx):
-    usage = dbx.users_get_space_usage()
-    allocated = usage.allocation.get_individual().allocated
-    used = usage.used
-    return allocated - used
-
-
-def list_files(dbx):
-    try:
-        result = dbx.files_list_folder("")
-        return result.entries
-    except:
-        return []
-
-
-def delete_file(dbx, path):
-    try:
-        dbx.files_delete_v2(path)
-        return True
-    except:
-        return False
-
-
-def upload_stream(dbx, url, dropbox_filename, overwrite=False):
-    r = requests.get(url, stream=True)
+def upload_file(dbx, url, dropbox_path, overwrite=False):
+    response = requests.get(url, stream=True)
+    response.raise_for_status()
 
     mode = WriteMode.overwrite if overwrite else WriteMode.add
 
     dbx.files_upload(
-        r.content,
-        f"/{dropbox_filename}",
+        response.content,
+        dropbox_path,
         mode=mode
     )
 
+# ===============================
+# TELEGRAM HANDLERS
+# ===============================
 
-# ==============================
-# DELETE MENU
-# ==============================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Send direct video link.")
 
-def show_delete_menu(chat_id):
-    files = list_files(dbx_link)
+async def handle_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    url = update.message.text.strip()
+    context.user_data["url"] = url
 
-    if not files:
-        send_message(chat_id, "No files found.")
-        return
+    keyboard = [
+        [
+            InlineKeyboardButton("Sky", callback_data="sky"),
+            InlineKeyboardButton("Willow", callback_data="willow")
+        ],
+        [
+            InlineKeyboardButton("Prime1", callback_data="prime1"),
+            InlineKeyboardButton("Prime2", callback_data="prime2")
+        ],
+        [
+            InlineKeyboardButton("DropBoxLink", callback_data="link")
+        ],
+        [
+            InlineKeyboardButton("MC", callback_data="mc"),
+            InlineKeyboardButton("WOF", callback_data="wof"),
+            InlineKeyboardButton("LC", callback_data="lc")
+        ]
+    ]
 
-    keyboard = []
+    await update.message.reply_text(
+        "Select Option:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
-    for f in files:
-        keyboard.append([{
-            "text": f.name,
-            "callback_data": f"delete_one|{f.path_display}"
-        }])
+# ===============================
+# CALLBACK HANDLER
+# ===============================
 
-    keyboard.append([{
-        "text": "🗑 Delete ALL",
-        "callback_data": "delete_all"
-    }])
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-    send_message(chat_id, "Delete files below:", {
-        "inline_keyboard": keyboard
-    })
+    url = context.user_data.get("url")
+    choice = query.data
 
+    await query.edit_message_text("🔍 Checking file...")
 
-# ==============================
-# RETRY UPLOAD
-# ==============================
+    try:
 
-def retry_upload(chat_id):
-    data = retry_upload_data.get(chat_id)
+        # ===============================
+        # MC / WOF / LC (Overwrite Mode)
+        # ===============================
 
-    if not data:
-        send_message(chat_id, "❌ No retry data found.")
-        return
+        if choice == "mc":
+            upload_file(
+                dbx_mc,
+                url,
+                "/MasterChef_Latest.mp4",
+                overwrite=True
+            )
 
-    url = data["url"]
+        elif choice == "wof":
+            upload_file(
+                dbx_wof,
+                url,
+                "/WheelOfFortune_Latest.mp4",
+                overwrite=True
+            )
 
-    threading.Thread(
-        target=upload_file,
-        args=(chat_id, url, "dropboxlink")
-    ).start()
+        elif choice == "lc":
+            upload_file(
+                dbx_lc,
+                url,
+                "/LaughterChef_Latest.mp4",
+                overwrite=True
+            )
 
+        # ===============================
+        # DropBoxLink (Storage Account)
+        # ===============================
 
-# ==============================
-# MAIN UPLOAD LOGIC
-# ==============================
+        elif choice == "link":
+            filename = extract_filename(url)
+            dropbox_path = f"/{filename}"
 
-def upload_file(chat_id, url, upload_type):
+            try:
+                upload_file(
+                    dbx_link,
+                    url,
+                    dropbox_path,
+                    overwrite=False
+                )
 
-    send_message(chat_id, "🔍 Checking file...")
+            except ApiError as e:
+                if "insufficient_space" in str(e):
+                    files = dbx_link.files_list_folder("").entries
 
-    if upload_type in FIXED_FILES:
+                    if not files:
+                        await query.edit_message_text("❌ Dropbox Full.")
+                        return
 
-        filename = FIXED_FILES[upload_type]
+                    buttons = []
 
-        if upload_type == "mc":
-            dbx = dbx_mc
-        elif upload_type == "wof":
-            dbx = dbx_wof
-        else:
-            dbx = dbx_lc
+                    for f in files[:5]:
+                        buttons.append([
+                            InlineKeyboardButton(
+                                f"Delete {f.name}",
+                                callback_data=f"del_{f.name}"
+                            )
+                        ])
 
-        try:
-            upload_stream(dbx, url, filename, overwrite=True)
-            send_message(chat_id, "✅ Overwritten Successfully.")
-        except Exception as e:
-            send_message(chat_id, f"❌ Error: {str(e)}")
+                    buttons.append([
+                        InlineKeyboardButton(
+                            "Delete ALL",
+                            callback_data="del_all"
+                        )
+                    ])
 
-        return
+                    await query.edit_message_text(
+                        "❌ Dropbox Full. Delete files below.",
+                        reply_markup=InlineKeyboardMarkup(buttons)
+                    )
+                    return
+                else:
+                    raise e
 
-    # ==============================
-    # DROPBOXLINK LOGIC
-    # ==============================
+        # ===============================
+        # SKY / WILLOW / PRIME1 / PRIME2
+        # ===============================
 
-    if upload_type == "dropboxlink":
-
-        files = list_files(dbx_link)
-
-        if len(files) >= 5:
-            retry_upload_data[chat_id] = {"url": url}
-            send_message(chat_id, "❌ Dropbox Full. Delete files below.")
-            show_delete_menu(chat_id)
+        elif choice in ["sky", "willow", "prime1", "prime2"]:
+            await query.edit_message_text(
+                f"✅ Link updated for {choice.upper()}"
+            )
             return
 
-        filename = url.split("/")[-1].split("?")[0]
+        await query.edit_message_text("✅ Upload Successful.")
 
-        try:
-            upload_stream(dbx_link, url, filename)
-            retry_upload_data.pop(chat_id, None)
-            send_message(chat_id, "✅ Uploaded to DropBoxLink.")
-        except Exception as e:
-            send_message(chat_id, f"❌ Error: {str(e)}")
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error: {str(e)}")
 
+# ===============================
+# DELETE HANDLER
+# ===============================
 
-# ==============================
-# TELEGRAM WEBHOOK
-# ==============================
+async def handle_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
-@app.route("/", methods=["POST"])
-def webhook():
-    data = request.get_json()
+    data = query.data
 
-    # ==========================
-    # MESSAGE
-    # ==========================
-
-    if "message" in data:
-
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"].get("text")
-
-        if text and text.lower() in ["mc", "wof", "lc", "dropboxlink"]:
-            pending_links[chat_id] = text.lower()
-            send_message(chat_id, "Send the direct video link.")
-            return "OK"
-
-        if chat_id in pending_links:
-            upload_type = pending_links.pop(chat_id)
-            url = text
-            threading.Thread(
-                target=upload_file,
-                args=(chat_id, url, upload_type)
-            ).start()
-            return "OK"
-
-    # ==========================
-    # CALLBACK QUERY
-    # ==========================
-
-    if "callback_query" in data:
-
-        query = data["callback_query"]
-        chat_id = query["message"]["chat"]["id"]
-        callback_data = query["data"]
-
-        if callback_data.startswith("delete_one|"):
-            path = callback_data.split("|")[1]
-            delete_file(dbx_link, path)
-            retry_upload(chat_id)
-
-        elif callback_data == "delete_all":
-            files = list_files(dbx_link)
+    try:
+        if data == "del_all":
+            files = dbx_link.files_list_folder("").entries
             for f in files:
-                delete_file(dbx_link, f.path_display)
-            retry_upload(chat_id)
+                dbx_link.files_delete_v2(f.path_lower)
 
-        requests.post(f"{BASE_URL}/answerCallbackQuery", json={
-            "callback_query_id": query["id"]
-        })
+        elif data.startswith("del_"):
+            name = data.replace("del_", "")
+            dbx_link.files_delete_v2(f"/{name}")
 
-    return "OK"
+        # AUTO RETRY
+        url = context.user_data.get("url")
+        filename = extract_filename(url)
+        dropbox_path = f"/{filename}"
 
+        upload_file(dbx_link, url, dropbox_path)
 
-# ==============================
-# START
-# ==============================
+        await query.edit_message_text("✅ Deleted & Upload Successful.")
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    except Exception as e:
+        await query.edit_message_text(f"❌ Error: {str(e)}")
+
+# ===============================
+# MAIN
+# ===============================
+
+app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_link))
+app.add_handler(CallbackQueryHandler(handle_delete, pattern="^del_"))
+app.add_handler(CallbackQueryHandler(handle_callback))
+
+app.run_polling()
