@@ -254,14 +254,20 @@ def show_delete_menu(chat_id):
     dbx = DROPBOXLINK_HANDLER.get_client()
 
     try:
-        result = dbx.files_list_folder("")
+        result = dbx.files_list_folder(path="")
         entries = result.entries
-    except Exception:
-        send_message(chat_id, "❌ Could not fetch file list.")
+
+        # Handle pagination
+        while result.has_more:
+            result = dbx.files_list_folder_continue(result.cursor)
+            entries.extend(result.entries)
+
+    except Exception as e:
+        send_message(chat_id, f"❌ Could not fetch file list.\n{str(e)}")
         return
 
     if not entries:
-        send_message(chat_id, "⚠ No files found.")
+        send_message(chat_id, "⚠ No files found in Dropbox root.")
         return
 
     keyboard = []
