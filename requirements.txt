@@ -1,6 +1,0 @@
-flask
-requests
-dropbox
-gunicorn
-PyGithub
-python-telegram-bot==20.7
