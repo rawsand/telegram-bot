@@ -1,36 +1,26 @@
 import re
 
 def extract_link_from_formatted_message(text):
-    """
-    Extracts download link only if filename matches:
-    - master + chef
-    - laughter + chef
-    - wheel + fortune
-    """
-
-    # Extract filename
     filename_match = re.search(r'Fɪʟᴇ ɴᴀᴍᴇ\s*:\s*(.+)', text)
     if not filename_match:
-        return None
+        return None, None
 
     filename = filename_match.group(1).strip().lower()
 
-    # Check required word combinations
-    valid = False
+    detected_show = None
 
     if "master" in filename and "chef" in filename:
-        valid = True
+        detected_show = "MC"
     elif "laughter" in filename and "chef" in filename:
-        valid = True
+        detected_show = "LC"
     elif "wheel" in filename and "fortune" in filename:
-        valid = True
+        detected_show = "WOF"
 
-    if not valid:
-        return None
+    if not detected_show:
+        return None, None
 
-    # Extract download link
     link_match = re.search(r'(https?://[^\s]+)', text)
     if not link_match:
-        return None
+        return None, None
 
-    return link_match.group(1)
+    return link_match.group(1), detected_show
