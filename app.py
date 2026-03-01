@@ -238,7 +238,12 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
         link = handler.generate_share_link(f"/{filename}")
 
         if fixed_name:
-            update_github_link(url, fixed_name.split("_")[0])
+            if "MasterChef" in fixed_name:
+                update_github_link(url, "Master Chef")
+            elif "WheelOfFortune" in fixed_name:
+                update_github_link(url, "Wheel of fortune")
+            elif "LaughterChef" in fixed_name:
+                update_github_link(url, "Laughter Chef")
         else:
             update_github_link(url, "DropBoxLink")
 
