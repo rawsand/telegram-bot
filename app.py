@@ -122,11 +122,27 @@ def webhook():
                 show_buttons(chat_id)
             
             else:
-                extracted_link = extract_link_from_formatted_message(text)
-            
-                if extracted_link:
-                    pending_links[chat_id] = extracted_link
-                    show_buttons(chat_id)
+                extracted_link, detected_show = extract_link_from_formatted_message(text)
+
+                if extracted_link and detected_show:
+                
+                    if detected_show == "MC":
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, extracted_link, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+                        ).start()
+                
+                    elif detected_show == "WOF":
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                        ).start()
+                
+                    elif detected_show == "LC":
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                        ).start()
 
     return "OK"
 
