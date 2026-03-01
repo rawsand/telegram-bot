@@ -6,28 +6,41 @@ import threading
 from datetime import datetime
 from flask import Flask, request
 from dropbox_handler import DropboxHandler
+from dropbox.files import WriteMode
 
 app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
-# Case 1 Dropbox (existing)
-APP_KEY = os.environ.get("APP_KEY")
-APP_SECRET = os.environ.get("APP_SECRET")
-REFRESH_TOKEN = os.environ.get("REFRESH_TOKEN")
+# ========= DROPBOX ACCOUNTS =========
+MC_HANDLER = DropboxHandler(
+    os.environ.get("MC_APP_KEY"),
+    os.environ.get("MC_APP_SECRET"),
+    os.environ.get("MC_REFRESH_TOKEN"),
+)
 
-# Case 2 Dropbox (separate account)
-APP_KEY_CASE2 = os.environ.get("APP_KEY_CASE2")
-APP_SECRET_CASE2 = os.environ.get("APP_SECRET_CASE2")
-REFRESH_TOKEN_CASE2 = os.environ.get("REFRESH_TOKEN_CASE2")
+WOF_HANDLER = DropboxHandler(
+    os.environ.get("WOF_APP_KEY"),
+    os.environ.get("WOF_APP_SECRET"),
+    os.environ.get("WOF_REFRESH_TOKEN"),
+)
 
-# GitHub
+LC_HANDLER = DropboxHandler(
+    os.environ.get("LC_APP_KEY"),
+    os.environ.get("LC_APP_SECRET"),
+    os.environ.get("LC_REFRESH_TOKEN"),
+)
+
+DROPBOXLINK_HANDLER = DropboxHandler(
+    os.environ.get("APP_KEY_CASE2"),
+    os.environ.get("APP_SECRET_CASE2"),
+    os.environ.get("REFRESH_TOKEN_CASE2"),
+)
+
+# ========= GITHUB =========
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
-
-handler_case1 = DropboxHandler(APP_KEY, APP_SECRET, REFRESH_TOKEN)
-handler_case2 = DropboxHandler(APP_KEY_CASE2, APP_SECRET_CASE2, REFRESH_TOKEN_CASE2)
 
 pending_links = {}
 
@@ -49,22 +62,49 @@ def webhook():
 
         url = pending_links.get(chat_id)
 
-        if not url:
-            send_message(chat_id, "❌ No pending link found.")
+        if choice.startswith("delete_one::"):
+            filename = choice.split("::")[1]
+            delete_single_file(chat_id, filename)
             return "OK"
 
-        if choice == "DropBoxLink":
-            threading.Thread(
-                target=process_dropbox_case2,
-                args=(chat_id, url)
-            ).start()
-        else:
+        if choice == "delete_all":
+            delete_all_files(chat_id)
+            return "OK"
+
+        if not url:
+            send_message(chat_id, "❌ No pending link.")
+            return "OK"
+
+        if choice in ["Sky", "Willow", "Prime1", "Prime2"]:
             threading.Thread(
                 target=update_github_only,
                 args=(chat_id, url, choice)
             ).start()
 
-        del pending_links[chat_id]
+        elif choice == "DropBoxLink":
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
+            ).start()
+
+        elif choice == "MC":
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+            ).start()
+
+        elif choice == "WOF":
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+            ).start()
+
+        elif choice == "LC":
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+            ).start()
+
         return "OK"
 
     # ===== MESSAGE HANDLING =====
@@ -112,6 +152,11 @@ def show_buttons(chat_id):
                 {"text": "Prime2", "callback_data": "Prime2"}
             ],
             [
+                {"text": "MC", "callback_data": "MC"},
+                {"text": "WOF", "callback_data": "WOF"},
+                {"text": "LC", "callback_data": "LC"}
+            ],
+            [
                 {"text": "DropBoxLink", "callback_data": "DropBoxLink"}
             ]
         ]
@@ -126,86 +171,153 @@ def show_buttons(chat_id):
         }
     )
 
-# ================= CASE 2 =================
+# ================= UPLOAD ENGINE =================
 
-def process_dropbox_case2(chat_id, url):
+def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
     try:
         status = send_message(chat_id, "🔍 Checking file...")
         message_id = status.json()["result"]["message_id"]
 
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
-
             total_size = int(r.headers.get("Content-Length", 0))
-            filename = extract_filename(r.headers)
 
-            dbx = handler_case2.get_client()
+            if fixed_name:
+                filename = fixed_name
+            else:
+                filename = extract_filename(r.headers)
 
-            # Check space
-            usage = dbx.users_get_space_usage()
-            free_space = usage.allocation.get_individual().allocated - usage.used
+            dbx = handler.get_client()
 
-            if total_size and total_size > free_space:
-                edit_message(chat_id, message_id, "❌ Not enough Dropbox space.")
-                return
+            # Only check space if NOT overwrite
+            if not overwrite:
+                usage = dbx.users_get_space_usage()
+                free_space = usage.allocation.get_individual().allocated - usage.used
 
-            filename = ensure_unique_filename(dbx, filename)
+                if total_size and total_size > free_space:
+                    if enable_delete:
+                        show_delete_menu(chat_id)
+                        edit_message(chat_id, message_id,
+                                     "❌ Dropbox Full. Delete files below.")
+                        return
+                    else:
+                        edit_message(chat_id, message_id,
+                                     "❌ Dropbox Full.")
+                        return
 
             edit_message(chat_id, message_id,
                          f"⬆ Starting upload...\nFile: {filename}")
 
-            # ===== PROGRESS SETUP =====
-            gap = 50 if total_size and total_size < 700 * 1024 * 1024 else 20
+            gap = 20
+            next_percent = gap
 
-            def progress_callback(uploaded_bytes, next_percent, gap_value):
+            def progress_callback(uploaded_bytes, *_):
+                nonlocal next_percent
                 if not total_size:
                     return
 
                 percent = int((uploaded_bytes / total_size) * 100)
 
-                if percent >= progress_callback.next_percent:
+                if percent >= next_percent:
                     edit_message(chat_id, message_id,
                                  f"⬆ Uploading: {percent}%")
-                    progress_callback.next_percent += gap_value
+                    next_percent += gap
 
-            progress_callback.next_percent = gap
-
-            # ===== UPLOAD =====
-            success = handler_case2.upload_stream(
+            success = handler.upload_stream(
                 r.raw,
                 f"/{filename}",
                 progress_callback=progress_callback,
-                total_size=total_size
+                total_size=total_size,
+                overwrite=overwrite
             )
 
         if not success:
             edit_message(chat_id, message_id, "❌ Upload failed.")
             return
 
-        link = handler_case2.generate_share_link(f"/{filename}")
+        link = handler.generate_share_link(f"/{filename}")
 
-        # Update original link in GitHub under DropBoxLink
-        update_github_link(url, "DropBoxLink")
+        if fixed_name:
+            update_github_link(url, fixed_name.split("_")[0])
+        else:
+            update_github_link(url, "DropBoxLink")
 
-        edit_message(
-            chat_id,
-            message_id,
-            f"✅ Upload successful!\n\nDropbox Link:\n{link}"
-        )
+        edit_message(chat_id, message_id,
+                     f"✅ Upload successful!\n\n{link}")
 
     except Exception as e:
         send_message(chat_id, f"❌ Error: {str(e)}")
+
+# ================= DELETE =================
+
+def show_delete_menu(chat_id):
+    dbx = DROPBOXLINK_HANDLER.get_client()
+
+    try:
+        result = dbx.files_list_folder("")
+        entries = result.entries
+    except Exception:
+        send_message(chat_id, "❌ Could not fetch file list.")
+        return
+
+    if not entries:
+        send_message(chat_id, "⚠ No files found.")
+        return
+
+    keyboard = []
+
+    for entry in entries:
+        keyboard.append([{
+            "text": f"Delete {entry.name}",
+            "callback_data": f"delete_one::{entry.name}"
+        }])
+
+    keyboard.append([{
+        "text": "Delete ALL Files",
+        "callback_data": "delete_all"
+    }])
+
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": "Select files to delete:",
+            "reply_markup": {"inline_keyboard": keyboard}
+        }
+    )
+
+def delete_single_file(chat_id, filename):
+    dbx = DROPBOXLINK_HANDLER.get_client()
+    dbx.files_delete_v2(f"/{filename}")
+    send_message(chat_id, f"🗑 Deleted {filename}")
+    retry_upload(chat_id)
+
+def delete_all_files(chat_id):
+    dbx = DROPBOXLINK_HANDLER.get_client()
+    result = dbx.files_list_folder("")
+    for entry in result.entries:
+        dbx.files_delete_v2(f"/{entry.name}")
+    send_message(chat_id, "🗑 All files deleted.")
+    retry_upload(chat_id)
+
+def retry_upload(chat_id):
+    url = pending_links.get(chat_id)
+    if url:
+        threading.Thread(
+            target=upload_file,
+            args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
+        ).start()
 
 # ================= GITHUB =================
 
 def update_github_only(chat_id, url, title):
     try:
         update_github_link(url, title)
-        send_message(chat_id, "✅ GitHub updated successfully.")
+        send_message(chat_id, "✅ GitHub updated.")
     except Exception as e:
         send_message(chat_id, f"❌ GitHub error: {str(e)}")
 
-def update_github_link(new_link, title=None):
+def update_github_link(new_link, title):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/links.txt"
 
@@ -213,15 +325,14 @@ def update_github_link(new_link, title=None):
     decoded = base64.b64decode(res["content"]).decode()
     lines = decoded.splitlines()
 
-    if title:
-        for i in range(len(lines)):
-            if lines[i].strip().lower() == title.strip().lower():
-                if i + 1 < len(lines):
-                    lines[i + 1] = new_link
-                break
+    for i in range(len(lines)):
+        if lines[i].strip().lower() == title.lower():
+            if i + 1 < len(lines):
+                lines[i + 1] = new_link
+            break
 
-    updated_content = "\n".join(lines)
-    encoded = base64.b64encode(updated_content.encode()).decode()
+    updated = "\n".join(lines)
+    encoded = base64.b64encode(updated.encode()).decode()
 
     requests.put(
         api_url,
@@ -242,22 +353,7 @@ def extract_filename(headers):
         if match:
             return match[0]
 
-    content_type = headers.get("Content-Type", "")
-    if "mp4" in content_type:
-        return "DirectUpload.mp4"
-
-    return "DirectUpload.mkv"
-
-def ensure_unique_filename(dbx, filename):
-    try:
-        dbx.files_get_metadata(f"/{filename}")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        name, ext = os.path.splitext(filename)
-        return f"{name}_{timestamp}{ext}"
-    except Exception as e:
-        if "not_found" in str(e):
-            return filename
-        raise e
+    return f"DirectUpload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
 # ================= MAIN =================
 
