@@ -2,7 +2,7 @@ MasterChef
 https://hub.oreao-cdn.buzz/d01807a8aeb57db3adc78d11298ddfe5?token=1772127239142
 
 Wheel of fortune
-https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1469264?hash=bd0bca&d=true
+https://hub.oreao-cdn.buzz/d01807a8aeb57db3adc78d11298ddfe5?token=1772127239142
 
 The 50
 https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464757?hash=8effff&d=true
