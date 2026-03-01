@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import Flask, request
 from dropbox_handler import DropboxHandler
 from dropbox.files import WriteMode
+from message_parser import extract_link_from_formatted_message
 
 app = Flask(__name__)
 
