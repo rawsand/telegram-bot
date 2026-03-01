@@ -120,6 +120,13 @@ def webhook():
             elif text.startswith("http"):
                 pending_links[chat_id] = text
                 show_buttons(chat_id)
+            
+            else:
+                extracted_link = extract_link_from_formatted_message(text)
+            
+                if extracted_link:
+                    pending_links[chat_id] = extracted_link
+                    show_buttons(chat_id)
 
     return "OK"
 
