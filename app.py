@@ -42,6 +42,9 @@ DROPBOXLINK_HANDLER = DropboxHandler(
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 
+# ========= QUEUE STATE =========
+upload_state = {}  # { chat_id: {"is_uploading": bool, "queue": []} }
+
 pending_links = {}
 
 # ================= ROUTES =================
@@ -62,48 +65,21 @@ def webhook():
 
         url = pending_links.get(chat_id)
 
-        if choice.startswith("delete_one::"):
-            filename = choice.split("::")[1]
-            delete_single_file(chat_id, filename)
-            return "OK"
-
-        if choice == "delete_all":
-            delete_all_files(chat_id)
-            return "OK"
-
         if not url:
             send_message(chat_id, "❌ No pending link.")
             return "OK"
 
-        if choice in ["Sky", "Willow", "Prime1", "Prime2"]:
-            threading.Thread(
-                target=update_github_only,
-                args=(chat_id, url, choice)
-            ).start()
-
-        elif choice == "DropBoxLink":
-            threading.Thread(
-                target=upload_file,
-                args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
-            ).start()
-
-        elif choice == "MC":
-            threading.Thread(
-                target=upload_file,
-                args=(chat_id, url, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
-            ).start()
+        if choice == "MC":
+            enqueue_upload(chat_id, url, "MC")
 
         elif choice == "WOF":
-            threading.Thread(
-                target=upload_file,
-                args=(chat_id, url, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
-            ).start()
+            enqueue_upload(chat_id, url, "WOF")
 
         elif choice == "LC":
-            threading.Thread(
-                target=upload_file,
-                args=(chat_id, url, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
-            ).start()
+            enqueue_upload(chat_id, url, "LC")
+
+        elif choice == "DropBoxLink":
+            enqueue_upload(chat_id, url, "DROPBOXLINK")
 
         return "OK"
 
@@ -118,85 +94,147 @@ def webhook():
                 send_message(chat_id, "Send a direct link.")
 
             elif text.startswith("http"):
-                # NEW: Process direct link in background
-                threading.Thread(
-                    target=process_direct_link,
-                    args=(chat_id, text)
-                ).start()
+                enqueue_upload(chat_id, text, "AUTO")
 
             else:
-                # Formatted message case (unchanged)
                 extracted_link, detected_show = extract_link_from_formatted_message(text)
 
                 if extracted_link and detected_show:
-
-                    if detected_show == "MC":
-                        threading.Thread(
-                            target=upload_file,
-                            args=(chat_id, extracted_link, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
-                        ).start()
-
-                    elif detected_show == "WOF":
-                        threading.Thread(
-                            target=upload_file,
-                            args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
-                        ).start()
-
-                    elif detected_show == "LC":
-                        threading.Thread(
-                            target=upload_file,
-                            args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
-                        ).start()
+                    enqueue_upload(chat_id, extracted_link, detected_show)
 
     return "OK"
 
-# ================= DIRECT LINK PROCESSOR =================
+# ================= QUEUE SYSTEM =================
 
-def process_direct_link(chat_id, url):
+def enqueue_upload(chat_id, url, mode):
+    if chat_id not in upload_state:
+        upload_state[chat_id] = {"is_uploading": False, "queue": []}
+
+    state = upload_state[chat_id]
+
+    job = {"url": url, "mode": mode}
+    state["queue"].append(job)
+
+    if state["is_uploading"]:
+        position = len(state["queue"])
+        send_message(chat_id,
+                     f"⏳ Upload in progress.\nAdded to queue (Position: {position})")
+    else:
+        process_next_upload(chat_id)
+
+def process_next_upload(chat_id):
+    state = upload_state[chat_id]
+
+    if not state["queue"]:
+        state["is_uploading"] = False
+        return
+
+    state["is_uploading"] = True
+    job = state["queue"].pop(0)
+
+    threading.Thread(
+        target=handle_upload_job,
+        args=(chat_id, job)
+    ).start()
+
+# ================= MAIN UPLOAD LOGIC =================
+
+def handle_upload_job(chat_id, job):
     try:
+        url = job["url"]
+        mode = job["mode"]
+
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
 
             filename = extract_filename(r.headers)
-
-            # Send filename message (NEVER edited later)
             send_message(chat_id, f"📂 Detected File:\n{filename}")
 
-            detected_show = detect_show_from_filename(filename)
+            detected_show = None
 
-            # Auto detect and upload
+            if mode == "AUTO":
+                detected_show = detect_show_from_filename(filename)
+            else:
+                detected_show = mode
+
             if detected_show == "MC":
-                upload_file(chat_id, url, MC_HANDLER,
-                            "MasterChef_Latest.mp4", True, False)
+                handler = MC_HANDLER
+                fixed_name = "MasterChef_Latest.mp4"
+                overwrite = True
+                enable_delete = False
 
             elif detected_show == "WOF":
-                upload_file(chat_id, url, WOF_HANDLER,
-                            "WheelOfFortune_Latest.mp4", True, False)
+                handler = WOF_HANDLER
+                fixed_name = "WheelOfFortune_Latest.mp4"
+                overwrite = True
+                enable_delete = False
 
             elif detected_show == "LC":
-                upload_file(chat_id, url, LC_HANDLER,
-                            "LaughterChef_Latest.mp4", True, False)
+                handler = LC_HANDLER
+                fixed_name = "LaughterChef_Latest.mp4"
+                overwrite = True
+                enable_delete = False
 
             else:
-                # Fallback to buttons
+                # fallback to buttons
                 pending_links[chat_id] = url
                 show_buttons(chat_id)
+                process_next_upload(chat_id)
+                return
+
+            status = send_message(chat_id, "⬆ Starting upload...")
+            message_id = status.json()["result"]["message_id"]
+
+            total_size = int(r.headers.get("Content-Length", 0))
+
+            gap = 20
+            next_percent = gap
+
+            def progress_callback(uploaded_bytes, *_):
+                nonlocal next_percent
+                if not total_size:
+                    return
+
+                percent = int((uploaded_bytes / total_size) * 100)
+                if percent >= next_percent:
+                    edit_message(chat_id, message_id,
+                                 f"⬆ Uploading: {percent}%")
+                    next_percent += gap
+
+            success = handler.upload_stream(
+                r.raw,
+                f"/{fixed_name}",
+                progress_callback=progress_callback,
+                total_size=total_size,
+                overwrite=overwrite
+            )
+
+        if not success:
+            edit_message(chat_id, message_id, "❌ Upload failed.")
+            process_next_upload(chat_id)
+            return
+
+        link = handler.generate_share_link(f"/{fixed_name}")
+        update_github_link(url, fixed_name.split("_")[0])
+
+        edit_message(chat_id, message_id,
+                     f"✅ Upload successful!\n\n{link}")
 
     except Exception as e:
-        send_message(chat_id, f"❌ Error reading link: {str(e)}")
+        send_message(chat_id, f"❌ Error: {str(e)}")
 
-# ================= SHOW DETECTION =================
+    process_next_upload(chat_id)
+
+# ================= DETECTION =================
 
 def detect_show_from_filename(filename):
     name = filename.lower()
-
     if "master" in name and "chef" in name:
         return "MC"
     elif "wheel" in name and "fortune" in name:
         return "WOF"
     elif "laughter" in name and "chef" in name:
         return "LC"
-
     return None
 
 # ================= TELEGRAM =================
@@ -221,14 +259,6 @@ def show_buttons(chat_id):
     keyboard = {
         "inline_keyboard": [
             [
-                {"text": "Sky", "callback_data": "Sky"},
-                {"text": "Willow", "callback_data": "Willow"}
-            ],
-            [
-                {"text": "Prime1", "callback_data": "Prime1"},
-                {"text": "Prime2", "callback_data": "Prime2"}
-            ],
-            [
                 {"text": "MC", "callback_data": "MC"},
                 {"text": "WOF", "callback_data": "WOF"},
                 {"text": "LC", "callback_data": "LC"}
@@ -248,81 +278,34 @@ def show_buttons(chat_id):
         }
     )
 
-# ================= UPLOAD ENGINE =================
+# ================= GITHUB =================
 
-def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
-    try:
-        status = send_message(chat_id, "⬆ Starting upload...")
-        message_id = status.json()["result"]["message_id"]
+def update_github_link(new_link, title):
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/links.txt"
 
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get("Content-Length", 0))
+    res = requests.get(api_url, headers=headers).json()
+    decoded = base64.b64decode(res["content"]).decode()
+    lines = decoded.splitlines()
 
-            filename = fixed_name if fixed_name else extract_filename(r.headers)
-            dbx = handler.get_client()
+    for i in range(len(lines)):
+        if lines[i].strip().lower() == title.lower():
+            if i + 1 < len(lines):
+                lines[i + 1] = new_link
+            break
 
-            if not overwrite:
-                usage = dbx.users_get_space_usage()
-                free_space = usage.allocation.get_individual().allocated - usage.used
+    updated = "\n".join(lines)
+    encoded = base64.b64encode(updated.encode()).decode()
 
-                if total_size and total_size > free_space:
-                    if enable_delete:
-                        show_delete_menu(chat_id)
-                        edit_message(chat_id, message_id,
-                                     "❌ Dropbox Full. Delete files below.")
-                        return
-                    else:
-                        edit_message(chat_id, message_id,
-                                     "❌ Dropbox Full.")
-                        return
-
-            gap = 20
-            next_percent = gap
-
-            def progress_callback(uploaded_bytes, *_):
-                nonlocal next_percent
-                if not total_size:
-                    return
-
-                percent = int((uploaded_bytes / total_size) * 100)
-
-                if percent >= next_percent:
-                    edit_message(chat_id, message_id,
-                                 f"⬆ Uploading: {percent}%")
-                    next_percent += gap
-
-            success = handler.upload_stream(
-                r.raw,
-                f"/{filename}",
-                progress_callback=progress_callback,
-                total_size=total_size,
-                overwrite=overwrite
-            )
-
-        if not success:
-            edit_message(chat_id, message_id, "❌ Upload failed.")
-            return
-
-        link = handler.generate_share_link(f"/{filename}")
-
-        if fixed_name:
-            update_github_link(url, fixed_name.split("_")[0])
-        else:
-            update_github_link(url, "DropBoxLink")
-
-        edit_message(chat_id, message_id,
-                     f"✅ Upload successful!\n\n{link}")
-
-    except Exception as e:
-        send_message(chat_id, f"❌ Error: {str(e)}")
-
-# ================= DELETE (UNCHANGED) =================
-# Your delete logic remains exactly the same as before
-# (keep your existing delete functions here without modification)
-
-# ================= GITHUB (UNCHANGED) =================
-# keep your existing GitHub functions here
+    requests.put(
+        api_url,
+        headers=headers,
+        json={
+            "message": f"Update link for {title}",
+            "content": encoded,
+            "sha": res["sha"]
+        }
+    )
 
 # ================= FILENAME =================
 
