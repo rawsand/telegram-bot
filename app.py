@@ -6,6 +6,7 @@ import threading
 from datetime import datetime
 from flask import Flask, request
 from dropbox_handler import DropboxHandler
+from dropbox.files import WriteMode
 from message_parser import extract_link_from_formatted_message
 
 app = Flask(__name__)
@@ -42,9 +43,6 @@ DROPBOXLINK_HANDLER = DropboxHandler(
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 
-# ========= QUEUE STATE =========
-upload_state = {}  # { chat_id: {"is_uploading": bool, "queue": []} }
-
 pending_links = {}
 
 # ================= ROUTES =================
@@ -65,21 +63,48 @@ def webhook():
 
         url = pending_links.get(chat_id)
 
+        if choice.startswith("delete_one::"):
+            filename = choice.split("::")[1]
+            delete_single_file(chat_id, filename)
+            return "OK"
+
+        if choice == "delete_all":
+            delete_all_files(chat_id)
+            return "OK"
+
         if not url:
             send_message(chat_id, "❌ No pending link.")
             return "OK"
 
-        if choice == "MC":
-            enqueue_upload(chat_id, url, "MC")
-
-        elif choice == "WOF":
-            enqueue_upload(chat_id, url, "WOF")
-
-        elif choice == "LC":
-            enqueue_upload(chat_id, url, "LC")
+        if choice in ["Sky", "Willow", "Prime1", "Prime2"]:
+            threading.Thread(
+                target=update_github_only,
+                args=(chat_id, url, choice)
+            ).start()
 
         elif choice == "DropBoxLink":
-            enqueue_upload(chat_id, url, "DROPBOXLINK")
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
+            ).start()
+
+        elif choice == "MC":
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+            ).start()
+
+        elif choice == "WOF":
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+            ).start()
+
+        elif choice == "LC":
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+            ).start()
 
         return "OK"
 
@@ -92,150 +117,34 @@ def webhook():
 
             if text == "/start":
                 send_message(chat_id, "Send a direct link.")
-
             elif text.startswith("http"):
-                enqueue_upload(chat_id, text, "AUTO")
-
+                pending_links[chat_id] = text
+                show_buttons(chat_id)
+            
             else:
                 extracted_link, detected_show = extract_link_from_formatted_message(text)
 
                 if extracted_link and detected_show:
-                    enqueue_upload(chat_id, extracted_link, detected_show)
+                
+                    if detected_show == "MC":
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, extracted_link, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+                        ).start()
+                
+                    elif detected_show == "WOF":
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                        ).start()
+                
+                    elif detected_show == "LC":
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                        ).start()
 
     return "OK"
-
-# ================= QUEUE SYSTEM =================
-
-def enqueue_upload(chat_id, url, mode):
-    if chat_id not in upload_state:
-        upload_state[chat_id] = {"is_uploading": False, "queue": []}
-
-    state = upload_state[chat_id]
-
-    job = {"url": url, "mode": mode}
-    state["queue"].append(job)
-
-    if state["is_uploading"]:
-        position = len(state["queue"])
-        send_message(chat_id,
-                     f"⏳ Upload in progress.\nAdded to queue (Position: {position})")
-    else:
-        process_next_upload(chat_id)
-
-def process_next_upload(chat_id):
-    state = upload_state[chat_id]
-
-    if not state["queue"]:
-        state["is_uploading"] = False
-        return
-
-    state["is_uploading"] = True
-    job = state["queue"].pop(0)
-
-    threading.Thread(
-        target=handle_upload_job,
-        args=(chat_id, job)
-    ).start()
-
-# ================= MAIN UPLOAD LOGIC =================
-
-def handle_upload_job(chat_id, job):
-    try:
-        url = job["url"]
-        mode = job["mode"]
-
-        with requests.get(url, stream=True) as r:
-            r.raise_for_status()
-
-            filename = extract_filename(r.headers)
-            send_message(chat_id, f"📂 Detected File:\n{filename}")
-
-            detected_show = None
-
-            if mode == "AUTO":
-                detected_show = detect_show_from_filename(filename)
-            else:
-                detected_show = mode
-
-            if detected_show == "MC":
-                handler = MC_HANDLER
-                fixed_name = "MasterChef_Latest.mp4"
-                overwrite = True
-                enable_delete = False
-
-            elif detected_show == "WOF":
-                handler = WOF_HANDLER
-                fixed_name = "WheelOfFortune_Latest.mp4"
-                overwrite = True
-                enable_delete = False
-
-            elif detected_show == "LC":
-                handler = LC_HANDLER
-                fixed_name = "LaughterChef_Latest.mp4"
-                overwrite = True
-                enable_delete = False
-
-            else:
-                # fallback to buttons
-                pending_links[chat_id] = url
-                show_buttons(chat_id)
-                process_next_upload(chat_id)
-                return
-
-            status = send_message(chat_id, "⬆ Starting upload...")
-            message_id = status.json()["result"]["message_id"]
-
-            total_size = int(r.headers.get("Content-Length", 0))
-
-            gap = 20
-            next_percent = gap
-
-            def progress_callback(uploaded_bytes, *_):
-                nonlocal next_percent
-                if not total_size:
-                    return
-
-                percent = int((uploaded_bytes / total_size) * 100)
-                if percent >= next_percent:
-                    edit_message(chat_id, message_id,
-                                 f"⬆ Uploading: {percent}%")
-                    next_percent += gap
-
-            success = handler.upload_stream(
-                r.raw,
-                f"/{fixed_name}",
-                progress_callback=progress_callback,
-                total_size=total_size,
-                overwrite=overwrite
-            )
-
-        if not success:
-            edit_message(chat_id, message_id, "❌ Upload failed.")
-            process_next_upload(chat_id)
-            return
-
-        link = handler.generate_share_link(f"/{fixed_name}")
-        update_github_link(url, fixed_name.split("_")[0])
-
-        edit_message(chat_id, message_id,
-                     f"✅ Upload successful!\n\n{link}")
-
-    except Exception as e:
-        send_message(chat_id, f"❌ Error: {str(e)}")
-
-    process_next_upload(chat_id)
-
-# ================= DETECTION =================
-
-def detect_show_from_filename(filename):
-    name = filename.lower()
-    if "master" in name and "chef" in name:
-        return "MC"
-    elif "wheel" in name and "fortune" in name:
-        return "WOF"
-    elif "laughter" in name and "chef" in name:
-        return "LC"
-    return None
 
 # ================= TELEGRAM =================
 
@@ -259,6 +168,14 @@ def show_buttons(chat_id):
     keyboard = {
         "inline_keyboard": [
             [
+                {"text": "Sky", "callback_data": "Sky"},
+                {"text": "Willow", "callback_data": "Willow"}
+            ],
+            [
+                {"text": "Prime1", "callback_data": "Prime1"},
+                {"text": "Prime2", "callback_data": "Prime2"}
+            ],
+            [
                 {"text": "MC", "callback_data": "MC"},
                 {"text": "WOF", "callback_data": "WOF"},
                 {"text": "LC", "callback_data": "LC"}
@@ -278,7 +195,157 @@ def show_buttons(chat_id):
         }
     )
 
+# ================= UPLOAD ENGINE =================
+
+def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
+    try:
+        status = send_message(chat_id, "🔍 Checking file...")
+        message_id = status.json()["result"]["message_id"]
+
+        with requests.get(url, stream=True) as r:
+            r.raise_for_status()
+            total_size = int(r.headers.get("Content-Length", 0))
+
+            if fixed_name:
+                filename = fixed_name
+            else:
+                filename = extract_filename(r.headers)
+
+            dbx = handler.get_client()
+
+            # Only check space if NOT overwrite
+            if not overwrite:
+                usage = dbx.users_get_space_usage()
+                free_space = usage.allocation.get_individual().allocated - usage.used
+
+                if total_size and total_size > free_space:
+                    if enable_delete:
+                        show_delete_menu(chat_id)
+                        edit_message(chat_id, message_id,
+                                     "❌ Dropbox Full. Delete files below.")
+                        return
+                    else:
+                        edit_message(chat_id, message_id,
+                                     "❌ Dropbox Full.")
+                        return
+
+            edit_message(chat_id, message_id,
+                         f"⬆ Starting upload...\nFile: {filename}")
+
+            gap = 20
+            next_percent = gap
+
+            def progress_callback(uploaded_bytes, *_):
+                nonlocal next_percent
+                if not total_size:
+                    return
+
+                percent = int((uploaded_bytes / total_size) * 100)
+
+                if percent >= next_percent:
+                    edit_message(chat_id, message_id,
+                                 f"⬆ Uploading: {percent}%")
+                    next_percent += gap
+
+            success = handler.upload_stream(
+                r.raw,
+                f"/{filename}",
+                progress_callback=progress_callback,
+                total_size=total_size,
+                overwrite=overwrite
+            )
+
+        if not success:
+            edit_message(chat_id, message_id, "❌ Upload failed.")
+            return
+
+        link = handler.generate_share_link(f"/{filename}")
+
+        if fixed_name:
+            update_github_link(url, fixed_name.split("_")[0])
+        else:
+            update_github_link(url, "DropBoxLink")
+
+        edit_message(chat_id, message_id,
+                     f"✅ Upload successful!\n\n{link}")
+
+    except Exception as e:
+        send_message(chat_id, f"❌ Error: {str(e)}")
+
+# ================= DELETE =================
+
+def show_delete_menu(chat_id):
+    dbx = DROPBOXLINK_HANDLER.get_client()
+
+    try:
+        result = dbx.files_list_folder(path="")
+        entries = result.entries
+
+        # Handle pagination
+        while result.has_more:
+            result = dbx.files_list_folder_continue(result.cursor)
+            entries.extend(result.entries)
+
+    except Exception as e:
+        send_message(chat_id, f"❌ Could not fetch file list.\n{str(e)}")
+        return
+
+    if not entries:
+        send_message(chat_id, "⚠ No files found in Dropbox root.")
+        return
+
+    keyboard = []
+
+    for entry in entries:
+        keyboard.append([{
+            "text": f"Delete {entry.name}",
+            "callback_data": f"delete_one::{entry.name}"
+        }])
+
+    keyboard.append([{
+        "text": "Delete ALL Files",
+        "callback_data": "delete_all"
+    }])
+
+    requests.post(
+        f"{TELEGRAM_API}/sendMessage",
+        json={
+            "chat_id": chat_id,
+            "text": "Select files to delete:",
+            "reply_markup": {"inline_keyboard": keyboard}
+        }
+    )
+
+def delete_single_file(chat_id, filename):
+    dbx = DROPBOXLINK_HANDLER.get_client()
+    dbx.files_delete_v2(f"/{filename}")
+    send_message(chat_id, f"🗑 Deleted {filename}")
+    retry_upload(chat_id)
+
+def delete_all_files(chat_id):
+    dbx = DROPBOXLINK_HANDLER.get_client()
+    result = dbx.files_list_folder("")
+    for entry in result.entries:
+        dbx.files_delete_v2(f"/{entry.name}")
+    send_message(chat_id, "🗑 All files deleted.")
+    retry_upload(chat_id)
+
+def retry_upload(chat_id):
+    url = pending_links.get(chat_id)
+    if url:
+        threading.Thread(
+            target=upload_file,
+            args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
+        ).start()
+
 # ================= GITHUB =================
+
+def update_github_only(chat_id, url, title):
+    try:
+        update_github_link(url, title)
+        send_message(chat_id, "✅ GitHub updated.")
+    except Exception as e:
+        send_message(chat_id, f"❌ GitHub error: {str(e)}")
 
 def update_github_link(new_link, title):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
