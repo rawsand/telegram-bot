@@ -285,7 +285,7 @@ def show_delete_menu(chat_id):
     try:
         result = dbx.files_list_folder(path="")
         entries = result.entries
-
+        print([entry.name for entry in entries])
         # Handle pagination
         while result.has_more:
             result = dbx.files_list_folder_continue(result.cursor)
