@@ -382,27 +382,30 @@ def update_github_link(new_link, title):
 # ================= FILENAME =================
 
 def extract_filename(headers, url):
+
     # 1️⃣ Try Content-Disposition header (browser-style filename)
     cd = headers.get("Content-Disposition")
     if cd:
-        # Handles both normal and RFC 5987 encoded filenames
         match = re.findall(r'filename\*?=(?:UTF-8\'\')?"?([^\";]+)"?', cd)
         if match:
-            return match[0].strip()
+            filename = match[0].strip()
+            base, ext = os.path.splitext(filename)
+            return (base[:50-len(ext)] + ext)[:50]
 
     # 2️⃣ Try extracting from URL path
     if url:
-        # Remove query parameters
         clean_url = url.split("?")[0]
         filename_from_url = clean_url.rstrip("/").split("/")[-1]
 
-        # Ensure it looks like a real file
         if "." in filename_from_url and len(filename_from_url) > 3:
-            return filename_from_url.strip()
+            base, ext = os.path.splitext(filename_from_url.strip())
+            return (base[:50-len(ext)] + ext)[:50]
 
     # 3️⃣ Final fallback
-    return f"DirectUpload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-
+    fallback = f"DirectUpload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    base, ext = os.path.splitext(fallback)
+    return (base[:50-len(ext)] + ext)[:50]
+    
 # ================= MAIN =================
 
 if __name__ == "__main__":
