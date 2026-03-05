@@ -110,72 +110,74 @@ def webhook():
 
     # ===== MESSAGE HANDLING ===== 
    
-if "message" in data:
-    chat_id = data["message"]["chat"]["id"]
-
-    if "text" in data["message"]:
-        text = data["message"]["text"]
-
-        if text == "/start":
-            send_message(chat_id, "Send a direct link.")
-
-        # ================= CASE 1 =================
-        # Formatted message with filename + link
-        extracted_link, detected_show = extract_link_from_formatted_message(text)
-
-        if extracted_link and detected_show:
-
-            if detected_show == "MC":
-                threading.Thread(
-                    target=upload_file,
-                    args=(chat_id, extracted_link, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
-                ).start()
-
-            elif detected_show == "WOF":
-                threading.Thread(
-                    target=upload_file,
-                    args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
-                ).start()
-
-            elif detected_show == "LC":
-                threading.Thread(
-                    target=upload_file,
-                    args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
-                ).start()
-
-        # ================= CASE 2 =================
-        # Direct link
-        elif text.startswith("http"):
-
-            try:
-                r = requests.head(text, allow_redirects=True)
-                filename = extract_filename(r.headers, text).lower()
-
-                if "masterchef" in filename:
+    if "message" in data:
+        chat_id = data["message"]["chat"]["id"]
+    
+        if "text" in data["message"]:
+            text = data["message"]["text"]
+    
+            if text == "/start":
+                send_message(chat_id, "Send a direct link.")
+    
+            # ================= CASE 1 =================
+            # Formatted message with filename + link
+            extracted_link, detected_show = extract_link_from_formatted_message(text)
+    
+            if extracted_link and detected_show:
+    
+                if detected_show == "MC":
                     threading.Thread(
                         target=upload_file,
-                        args=(chat_id, text, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+                        args=(chat_id, extracted_link, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
                     ).start()
-
-                elif "wheel" in filename and "fortune" in filename:
+    
+                elif detected_show == "WOF":
                     threading.Thread(
                         target=upload_file,
-                        args=(chat_id, text, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                        args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
                     ).start()
-
-                elif "laughter" in filename and "chef" in filename:
+    
+                elif detected_show == "LC":
                     threading.Thread(
                         target=upload_file,
-                        args=(chat_id, text, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                        args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
                     ).start()
-
-                else:
+    
+            # ================= CASE 2 =================
+            # Direct link
+            elif text.startswith("http"):
+    
+                try:
+                    r = requests.head(text, allow_redirects=True)
+                    filename = extract_filename(r.headers, text).lower()
+    
+                    if "masterchef" in filename:
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, text, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+                        ).start()
+    
+                    elif "wheel" in filename and "fortune" in filename:
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, text, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                        ).start()
+    
+                    elif "laughter" in filename and "chef" in filename:
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, text, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                        ).start()
+    
+                    else:
+                        pending_links[chat_id] = text
+                        show_buttons(chat_id)
+    
+                except:
                     pending_links[chat_id] = text
                     show_buttons(chat_id)
 
-            except:
-                pending_links[chat_id] = text
-                show_buttons(chat_id)
+    return "OK"
                 
 # ================= TELEGRAM =================
 
