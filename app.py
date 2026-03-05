@@ -216,7 +216,12 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
             # Only check space if NOT overwrite
             if not overwrite:
                 usage = dbx.users_get_space_usage()
-                free_space = usage.allocation.get_individual().allocated - usage.used
+                if hasattr(usage.allocation, "allocated"):
+                    total_space = usage.allocation.allocated
+                else:
+                    total_space = usage.allocation.get_individual().allocated
+                
+                free_space = total_space - usage.used
 
                 if total_size and total_size > free_space:
                     if enable_delete:
