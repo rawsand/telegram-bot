@@ -209,7 +209,7 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
             if fixed_name:
                 filename = fixed_name
             else:
-                filename = extract_filename(r.headers)
+                filename = extract_filename(r.headers, url)
 
             dbx = handler.get_client()
 
@@ -376,13 +376,26 @@ def update_github_link(new_link, title):
 
 # ================= FILENAME =================
 
-def extract_filename(headers):
+def extract_filename(headers, url):
+    # 1️⃣ Try Content-Disposition header (browser-style filename)
     cd = headers.get("Content-Disposition")
     if cd:
-        match = re.findall('filename="?([^"]+)"?', cd)
+        # Handles both normal and RFC 5987 encoded filenames
+        match = re.findall(r'filename\*?=(?:UTF-8\'\')?"?([^\";]+)"?', cd)
         if match:
-            return match[0]
+            return match[0].strip()
 
+    # 2️⃣ Try extracting from URL path
+    if url:
+        # Remove query parameters
+        clean_url = url.split("?")[0]
+        filename_from_url = clean_url.rstrip("/").split("/")[-1]
+
+        # Ensure it looks like a real file
+        if "." in filename_from_url and len(filename_from_url) > 3:
+            return filename_from_url.strip()
+
+    # 3️⃣ Final fallback
     return f"DirectUpload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
 
 # ================= MAIN =================
