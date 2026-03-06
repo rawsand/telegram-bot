@@ -8,7 +8,7 @@ The 50
 https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464757?hash=8effff&d=true
 
 LaughterChef
-https://hub.raj.lat/2c18a22dff6a19ab785ab49bb4ade13d?token=1772725389113
+https://hub.raj.lat/20b77461f4ce076e3cd55dd2b0360808?token=1772806821
 
 DropBoxLink
 https://hub.raj.lat/4f91f5754f7a93fd8caa93d0a2d9a0ca?token=1772725301111
