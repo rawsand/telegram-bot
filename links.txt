@@ -2,7 +2,7 @@ MasterChef
 https://filetolinkneon3-f3fb5765bfd1.herokuapp.com/stream/1573340?hash=9966c5&d=true
 
 Wheeloffortune
-https://filetolinkneon4-484f8cd71236.herokuapp.com/stream/1573308?hash=a46f72&d=true
+https://filetolinkneon4-484f8cd71236.herokuapp.com/stream/1580056?hash=6aa6c4&d=true
 
 The 50
 https://filetolinkneon4-145bcdf4a2ef.herokuapp.com/stream/1464757?hash=8effff&d=true
