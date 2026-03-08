@@ -91,7 +91,7 @@ def webhook():
         elif choice == "MC":
             threading.Thread(
                 target=upload_file,
-                args=(chat_id, url, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+                args=(chat_id, url, MC_HANDLER, None, False, True)
             ).start()
 
         elif choice == "WOF":
