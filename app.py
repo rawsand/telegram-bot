@@ -54,13 +54,10 @@ pending_handlers = {}
 def home():
     return "Bot running"
 
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
 
     data = request.get_json()
-
-    # ===== BUTTON CALLBACK =====
 
     if "callback_query" in data:
 
@@ -69,7 +66,6 @@ def webhook():
         choice = query["data"]
 
         url = pending_links.get(chat_id)
-        handler = pending_handlers.get(chat_id)
 
         if choice.startswith("delete_one::"):
             filename = choice.split("::")[1]
@@ -84,27 +80,41 @@ def webhook():
             send_message(chat_id, "❌ No pending link.")
             return "OK"
 
-        if choice == "MC":
-
-            pending_handlers[chat_id] = MC_HANDLER
-
+        if choice in ["Sky", "Willow", "Prime1", "Prime2"]:
             threading.Thread(
-                target=upload_file,
-                args=(chat_id, url, MC_HANDLER, None, False, True)
+                target=update_github_only,
+                args=(chat_id, url, choice)
             ).start()
 
         elif choice == "DropBoxLink":
-
             pending_handlers[chat_id] = DROPBOXLINK_HANDLER
-
             threading.Thread(
                 target=upload_file,
                 args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
             ).start()
 
-        return "OK"
+        elif choice == "MC":
+            pending_handlers[chat_id] = MC_HANDLER
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, MC_HANDLER, None, False, True)
+            ).start()
 
-    # ===== MESSAGE HANDLING =====
+        elif choice == "WOF":
+            pending_handlers[chat_id] = WOF_HANDLER
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+            ).start()
+
+        elif choice == "LC":
+            pending_handlers[chat_id] = LC_HANDLER
+            threading.Thread(
+                target=upload_file,
+                args=(chat_id, url, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+            ).start()
+
+        return "OK"
 
     if "message" in data:
 
@@ -114,30 +124,74 @@ def webhook():
 
             text = data["message"]["text"]
 
-            if text.startswith("http"):
+            if text == "/start":
+                send_message(chat_id, "Send a direct link.")
 
-                pending_links[chat_id] = text
-                show_buttons(chat_id)
+            extracted_link, detected_show = extract_link_from_formatted_message(text)
 
-            else:
+            if extracted_link and detected_show:
 
-                send_message(chat_id, "Send direct download link.")
+                if detected_show == "MC":
+                    threading.Thread(
+                        target=upload_file,
+                        args=(chat_id, extracted_link, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+                    ).start()
 
-    return "OK"
+                elif detected_show == "WOF":
+                    threading.Thread(
+                        target=upload_file,
+                        args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                    ).start()
 
+                elif detected_show == "LC":
+                    threading.Thread(
+                        target=upload_file,
+                        args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                    ).start()
+
+            elif text.startswith("http"):
+
+                try:
+                    r = requests.head(text, allow_redirects=True)
+                    filename = extract_filename(r.headers, text).lower()
+
+                    if "masterchef" in filename:
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, text, MC_HANDLER, "MasterChef_Latest.mp4", True, False)
+                        ).start()
+
+                    elif "wheel" in filename and "fortune" in filename:
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, text, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                        ).start()
+
+                    elif "laughter" in filename and "chef" in filename:
+                        threading.Thread(
+                            target=upload_file,
+                            args=(chat_id, text, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                        ).start()
+
+                    else:
+                        pending_links[chat_id] = text
+                        show_buttons(chat_id)
+
+                except:
+                    pending_links[chat_id] = text
+                    show_buttons(chat_id)
+
+        return "OK"
 
 # ================= TELEGRAM =================
 
 def send_message(chat_id, text):
-
     return requests.post(
         f"{TELEGRAM_API}/sendMessage",
         json={"chat_id": chat_id, "text": text}
     )
 
-
 def edit_message(chat_id, message_id, text):
-
     requests.post(
         f"{TELEGRAM_API}/editMessageText",
         json={
@@ -147,13 +201,24 @@ def edit_message(chat_id, message_id, text):
         }
     )
 
-
 def show_buttons(chat_id):
 
     keyboard = {
         "inline_keyboard": [
             [
+                {"text": "Sky", "callback_data": "Sky"},
+                {"text": "Willow", "callback_data": "Willow"}
+            ],
+            [
+                {"text": "Prime1", "callback_data": "Prime1"},
+                {"text": "Prime2", "callback_data": "Prime2"}
+            ],
+            [
                 {"text": "MC", "callback_data": "MC"},
+                {"text": "WOF", "callback_data": "WOF"},
+                {"text": "LC", "callback_data": "LC"}
+            ],
+            [
                 {"text": "DropBoxLink", "callback_data": "DropBoxLink"}
             ]
         ]
@@ -168,98 +233,6 @@ def show_buttons(chat_id):
         }
     )
 
-
-# ================= UPLOAD ENGINE =================
-
-def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
-
-    try:
-
-        pending_handlers[chat_id] = handler
-
-        status = send_message(chat_id, "🔍 Checking file...")
-        message_id = status.json()["result"]["message_id"]
-
-        with requests.get(url, stream=True) as r:
-
-            r.raise_for_status()
-            total_size = int(r.headers.get("Content-Length", 0))
-
-            if fixed_name:
-                filename = fixed_name
-            else:
-                filename = extract_filename(r.headers, url)
-
-            dbx = handler.get_client()
-
-            if not overwrite:
-
-                usage = dbx.users_get_space_usage()
-
-                if hasattr(usage.allocation, "allocated"):
-                    total_space = usage.allocation.allocated
-                else:
-                    total_space = usage.allocation.get_individual().allocated
-
-                free_space = total_space - usage.used
-
-                if total_size and total_size > free_space:
-
-                    if enable_delete:
-                        show_delete_menu(chat_id)
-                        edit_message(chat_id, message_id,
-                                     "❌ Dropbox Full. Delete files below.")
-                        return
-
-                    else:
-                        edit_message(chat_id, message_id,
-                                     "❌ Dropbox Full.")
-                        return
-
-            edit_message(chat_id, message_id,
-                         f"⬆ Starting upload...\nFile: {filename}")
-
-            gap = 20
-            next_percent = gap
-
-            def progress_callback(uploaded_bytes, *_):
-
-                nonlocal next_percent
-
-                if not total_size:
-                    return
-
-                percent = int((uploaded_bytes / total_size) * 100)
-
-                if percent >= next_percent:
-
-                    edit_message(chat_id, message_id,
-                                 f"⬆ Uploading: {percent}%")
-
-                    next_percent += gap
-
-            success = handler.upload_stream(
-                r.raw,
-                f"/{filename}",
-                progress_callback=progress_callback,
-                total_size=total_size,
-                overwrite=overwrite
-            )
-
-        if not success:
-            edit_message(chat_id, message_id, "❌ Upload failed.")
-            return
-
-        link = handler.generate_share_link(f"/{filename}")
-
-        edit_message(chat_id, message_id,
-                     f"✅ Upload successful!\n\n{link}")
-
-    except Exception as e:
-
-        send_message(chat_id, f"❌ Error: {str(e)}")
-
-
 # ================= DELETE =================
 
 def show_delete_menu(chat_id):
@@ -271,7 +244,7 @@ def show_delete_menu(chat_id):
 
     dbx = handler.get_client()
 
-    result = dbx.files_list_folder(path="")
+    result = dbx.files_list_folder("")
     entries = result.entries
 
     keyboard = []
@@ -297,7 +270,6 @@ def show_delete_menu(chat_id):
         }
     )
 
-
 def delete_single_file(chat_id, filename):
 
     handler = pending_handlers.get(chat_id)
@@ -308,7 +280,6 @@ def delete_single_file(chat_id, filename):
     send_message(chat_id, f"🗑 Deleted {filename}")
 
     retry_upload(chat_id)
-
 
 def delete_all_files(chat_id):
 
@@ -324,7 +295,6 @@ def delete_all_files(chat_id):
 
     retry_upload(chat_id)
 
-
 def retry_upload(chat_id):
 
     url = pending_links.get(chat_id)
@@ -336,47 +306,3 @@ def retry_upload(chat_id):
             target=upload_file,
             args=(chat_id, url, handler, None, False, True)
         ).start()
-
-
-# ================= FILENAME =================
-
-def extract_filename(headers, url):
-
-    cd = headers.get("Content-Disposition")
-
-    if cd:
-
-        match = re.findall(r'filename\*?=(?:UTF-8\'\')?"?([^\";]+)"?', cd)
-
-        if match:
-
-            filename = match[0].strip()
-            base, ext = os.path.splitext(filename)
-
-            return (base[:50-len(ext)] + ext)[:50]
-
-    if url:
-
-        clean_url = url.split("?")[0]
-        filename_from_url = clean_url.rstrip("/").split("/")[-1]
-
-        if "." in filename_from_url and len(filename_from_url) > 3:
-
-            base, ext = os.path.splitext(filename_from_url.strip())
-
-            return (base[:50-len(ext)] + ext)[:50]
-
-    fallback = f"DirectUpload_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-
-    base, ext = os.path.splitext(fallback)
-
-    return (base[:50-len(ext)] + ext)[:50]
-
-
-# ================= MAIN =================
-
-if __name__ == "__main__":
-
-    port = int(os.environ.get("PORT", 10000))
-
-    app.run(host="0.0.0.0", port=port)
