@@ -270,16 +270,11 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
                                      "❌ Dropbox Full.")
                         return
 
-                    size_mb = round(total_size / (1024 * 1024), 2) if total_size else "Unknown"
+            edit_message(chat_id, message_id,
+                         f"⬆ Starting upload...\nFile: {filename}")
 
-                    edit_message(chat_id, message_id,
-                                 f"⬆ Starting upload...\nFile: {filename}\nSize: {size_mb} MB")
-                        
-                    gap = 20
-                    next_percent = gap
-
-                    progress = send_message(chat_id, "⬆ Uploading: 0%")
-                    progress_id = progress.json()["result"]["message_id"]
+            gap = 20
+            next_percent = gap
 
             def progress_callback(uploaded_bytes, *_):
                 nonlocal next_percent
@@ -289,9 +284,8 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
                 percent = int((uploaded_bytes / total_size) * 100)
 
                 if percent >= next_percent:
-                    prefix = "⬆ Uploading:" if percent == 0 else "-> Uploading:"
-                    edit_message(chat_id, progress_id,
-                                 f"{prefix} {percent}%")
+                    edit_message(chat_id, message_id,
+                                 f"⬆ Uploading: {percent}%")
                     next_percent += gap
 
             success = handler.upload_stream(
