@@ -275,8 +275,8 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
                     edit_message(chat_id, message_id,
                                  f"⬆ Starting upload...\nFile: {filename}\nSize: {size_mb} MB")
                         
-                        gap = 20
-                        next_percent = gap
+                    gap = 20
+                    next_percent = gap
 
                     progress = send_message(chat_id, "⬆ Uploading: 0%")
                     progress_id = progress.json()["result"]["message_id"]
