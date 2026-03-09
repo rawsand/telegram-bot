@@ -376,10 +376,11 @@ def delete_all_files(chat_id):
 
 def retry_upload(chat_id):
     url = pending_links.get(chat_id)
+    handler = pending_handlers.get(chat_id, DROPBOXLINK_HANDLER)
     if url:
         threading.Thread(
             target=upload_file,
-            args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
+            args=(chat_id, url, handler, None, False, True)
         ).start()
 
 # ================= GITHUB =================
