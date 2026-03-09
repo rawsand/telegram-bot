@@ -314,7 +314,7 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
         else:
             update_github_link(url, "DropBoxLink")
 
-        edit_message(chat_id, message_id,
+        edit_message(chat_id, progress_id,
                      f"✅ Upload successful!\n\n{link}")
 
     except Exception as e:
