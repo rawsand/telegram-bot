@@ -277,6 +277,9 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
                         gap = 20
                         next_percent = gap
 
+                    progress = send_message(chat_id, "⬆ Uploading: 0%")
+                    progress_id = progress.json()["result"]["message_id"]
+
             def progress_callback(uploaded_bytes, *_):
                 nonlocal next_percent
                 if not total_size:
@@ -285,8 +288,9 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
                 percent = int((uploaded_bytes / total_size) * 100)
 
                 if percent >= next_percent:
-                    edit_message(chat_id, message_id,
-                                 f"⬆ Uploading: {percent}%")
+                    prefix = "⬆ Uploading:" if percent == 0 else "-> Uploading:"
+                    edit_message(chat_id, progress_id,
+                                 f"{prefix} {percent}%")
                     next_percent += gap
 
             success = handler.upload_stream(
