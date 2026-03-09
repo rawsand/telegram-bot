@@ -301,6 +301,8 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
                 overwrite=overwrite
             )
 
+        edit_message(chat_id, progress_id, "-> Uploading: 100%")
+        
         if not success:
             edit_message(chat_id, message_id, "❌ Upload failed.")
             return
