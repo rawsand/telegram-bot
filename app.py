@@ -94,7 +94,7 @@ def webhook():
             pending_handlers[chat_id] = MC_HANDLER
             threading.Thread(
                 target=upload_file,
-                args=(chat_id, url, MC_HANDLER, None, True, False)
+                args=(chat_id, url, MC_HANDLER, None, False, True)
             ).start()
 
         elif choice == "WOF":
@@ -131,7 +131,7 @@ def webhook():
                 if detected_show == "MC":
                     threading.Thread(
                         target=upload_file,
-                        args=(chat_id, extracted_link, MC_HANDLER, None, True, False)
+                        args=(chat_id, extracted_link, MC_HANDLER, None, False, True)
                     ).start()
     
                 elif detected_show == "WOF":
@@ -157,7 +157,7 @@ def webhook():
                     if "masterchef" in filename:
                         threading.Thread(
                             target=upload_file,
-                            args=(chat_id, text, MC_HANDLER, None, True, False)
+                            args=(chat_id, text, MC_HANDLER, None, False, True)
                         ).start()
     
                     elif "wheel" in filename and "fortune" in filename:
