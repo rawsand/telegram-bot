@@ -44,6 +44,7 @@ GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 GITHUB_REPO = os.environ.get("GITHUB_REPO")
 
 pending_links = {}
+pending_handlers = {}
 
 # ================= ROUTES =================
 
@@ -83,12 +84,14 @@ def webhook():
             ).start()
 
         elif choice == "DropBoxLink":
+            pending_handlers[chat_id] = DROPBOXLINK_HANDLER
             threading.Thread(
                 target=upload_file,
                 args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
             ).start()
 
         elif choice == "MC":
+            pending_handlers[chat_id] = MC_HANDLER
             threading.Thread(
                 target=upload_file,
                 args=(chat_id, url, MC_HANDLER, None, True, False)
@@ -313,7 +316,8 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
 # ================= DELETE =================
 
 def show_delete_menu(chat_id):
-    dbx = DROPBOXLINK_HANDLER.get_client()
+    handler = pending_handlers.get(chat_id, DROPBOXLINK_HANDLER)
+    dbx = handler.get_client()
 
     try:
         result = dbx.files_list_folder(path="")
@@ -355,13 +359,15 @@ def show_delete_menu(chat_id):
     )
 
 def delete_single_file(chat_id, filename):
-    dbx = DROPBOXLINK_HANDLER.get_client()
+    handler = pending_handlers.get(chat_id, DROPBOXLINK_HANDLER)
+    dbx = handler.get_client()
     dbx.files_delete_v2(f"/{filename}")
     send_message(chat_id, f"🗑 Deleted {filename}")
     retry_upload(chat_id)
 
 def delete_all_files(chat_id):
-    dbx = DROPBOXLINK_HANDLER.get_client()
+    handler = pending_handlers.get(chat_id, DROPBOXLINK_HANDLER)
+    dbx = handler.get_client()
     result = dbx.files_list_folder("")
     for entry in result.entries:
         dbx.files_delete_v2(f"/{entry.name}")
