@@ -87,26 +87,26 @@ def webhook():
             pending_handlers[chat_id] = DROPBOXLINK_HANDLER
             threading.Thread(
                 target=upload_file,
-                args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True)
+                args=(chat_id, url, DROPBOXLINK_HANDLER, None, False, True, "DropBoxLink")
             ).start()
 
         elif choice == "MC":
             pending_handlers[chat_id] = MC_HANDLER
             threading.Thread(
                 target=upload_file,
-                args=(chat_id, url, MC_HANDLER, None, False, True)
+                args=(chat_id, url, MC_HANDLER, None, False, True, "MasterChef")
             ).start()
 
         elif choice == "WOF":
             threading.Thread(
                 target=upload_file,
-                args=(chat_id, url, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                args=(chat_id, url, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False, "WheelOfFortune")
             ).start()
 
         elif choice == "LC":
             threading.Thread(
                 target=upload_file,
-                args=(chat_id, url, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                args=(chat_id, url, LC_HANDLER, "LaughterChef_Latest.mp4", True, False, "LaughterChef")
             ).start()
 
         return "OK"
@@ -233,7 +233,7 @@ def show_buttons(chat_id):
 
 # ================= UPLOAD ENGINE =================
 
-def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
+def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete, account_name):
     try:
         status = send_message(chat_id, "🔍 Checking file...")
         message_id = status.json()["result"]["message_id"]
@@ -273,7 +273,7 @@ def upload_file(chat_id, url, handler, fixed_name, overwrite, enable_delete):
             size_mb = round(total_size / (1024 * 1024), 2) if total_size else "Unknown"
 
             edit_message(chat_id, message_id,
-                         f"⬆ Starting upload...\nFile: {filename}\nSize: {size_mb} MB")
+                         f"⬆ Starting upload...\nFile: {filename}\nSize: {size_mb} MB\nDropbox Account: {account_name}")
             
             progress_msg = send_message(chat_id, "⬆ Uploading: 0%")
             progress_id = progress_msg.json()["result"]["message_id"]
