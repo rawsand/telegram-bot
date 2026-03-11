@@ -131,19 +131,19 @@ def webhook():
                 if detected_show == "MC":
                     threading.Thread(
                         target=upload_file,
-                        args=(chat_id, extracted_link, MC_HANDLER, None, False, True)
+                        args=(chat_id, extracted_link, MC_HANDLER, None, False, True, "MasterChef")
                     ).start()
     
                 elif detected_show == "WOF":
                     threading.Thread(
                         target=upload_file,
-                        args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                        args=(chat_id, extracted_link, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False, "WheelOfFortune")
                     ).start()
     
                 elif detected_show == "LC":
                     threading.Thread(
                         target=upload_file,
-                        args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                        args=(chat_id, extracted_link, LC_HANDLER, "LaughterChef_Latest.mp4", True, False, "LaughterChef")
                     ).start()
     
             # ================= CASE 2 =================
@@ -157,19 +157,19 @@ def webhook():
                     if "masterchef" in filename:
                         threading.Thread(
                             target=upload_file,
-                            args=(chat_id, text, MC_HANDLER, None, False, True)
+                            args=(chat_id, text, MC_HANDLER, None, False, True, "MasterChef")
                         ).start()
     
                     elif "wheel" in filename and "fortune" in filename:
                         threading.Thread(
                             target=upload_file,
-                            args=(chat_id, text, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False)
+                            args=(chat_id, text, WOF_HANDLER, "WheelOfFortune_Latest.mp4", True, False, "WheelOfFortune")
                         ).start()
     
                     elif "laughter" in filename and "chef" in filename:
                         threading.Thread(
                             target=upload_file,
-                            args=(chat_id, text, LC_HANDLER, "LaughterChef_Latest.mp4", True, False)
+                            args=(chat_id, text, LC_HANDLER, "LaughterChef_Latest.mp4", True, False, "LaughterChef")
                         ).start()
     
                     else:
@@ -387,7 +387,7 @@ def retry_upload(chat_id):
     if url:
         threading.Thread(
             target=upload_file,
-            args=(chat_id, url, handler, None, False, True)
+            args=(chat_id, url, handler, None, False, True, str(DROPBOXLINK_HANDLER))
         ).start()
 
 # ================= GITHUB =================
